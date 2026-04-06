@@ -1,512 +1,409 @@
 'use client';
+
 import { useState, useEffect } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import {
   BookOpen,
+  Plus,
+  Edit,
+  Trash2,
+  Eye,
+  Loader2,
   Building,
   Calendar,
   Tag,
-  Hash,
-  Save,
-  ArrowLeft,
-  ChevronDown,
+  CheckCircle,
+  XCircle,
 } from 'lucide-react';
 
-const API_BASE_URL = 'http://127.0.0.1:8000/api';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000/api';
 
-interface Department {
+interface Programme {
   id: number;
   name: string;
+  description: string;
+  department: string;
+  duration: string;
+  category: string;
   code: string;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
 }
 
-export default function AddOrEditProgrammePage() {
+export default function ProgrammesListPage() {
+  const [programmes, setProgrammes] = useState<Programme[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterCategory, setFilterCategory] = useState('all');
   const router = useRouter();
-  const params = useParams();
-  const programmeId = Array.isArray(params?.id) ? params.id[0] : params?.id;
 
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [department, setDepartment] = useState('');
-  const [duration, setDuration] = useState('');
-  const [category, setCategory] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [departmentsLoading, setDepartmentsLoading] = useState(false);
-  const [user, setUser] = useState<any>(null);
+  // Helper to get token from localStorage
+  const getToken = () => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('token');
+    }
+    return null;
+  };
 
-  // Check authentication
-  const checkAuth = async () => {
+  useEffect(() => {
+    fetchProgrammes();
+  }, []);
+
+  const fetchProgrammes = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/me/`, {
+      setLoading(true);
+      setError('');
+      
+      const token = getToken();
+      
+      if (!token) {
+        setError('Please login to view programmes');
+        setTimeout(() => router.push('/login'), 2000);
+        return;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/programmes/`, {
         method: 'GET',
-        credentials: 'include',
         headers: {
+          'Authorization': `Bearer ${token}`,
           'Accept': 'application/json',
           'Content-Type': 'application/json',
         },
       });
 
-      if (response.ok) {
-        const userData = await response.json();
-        if (userData.is_authenticated) {
-          setUser(userData);
-          return true;
-        }
-      }
-      return false;
-    } catch (error) {
-      console.error('Auth check failed:', error);
-      return false;
-    }
-  };
-
-  // Fetch departments from Django API
-  useEffect(() => {
-    const fetchDepartments = async () => {
-      try {
-        const isAuthenticated = await checkAuth();
-        if (!isAuthenticated) {
-          router.push('/login');
-          return;
-        }
-
-        setDepartmentsLoading(true);
-
-        // Get CSRF token first
-        const csrfResponse = await fetch(`${API_BASE_URL}/csrf/`, {
-          credentials: 'include',
-        });
-
-        if (!csrfResponse.ok) {
-          throw new Error('Failed to get CSRF token');
-        }
-
-        const csrfData = await csrfResponse.json();
-
-        // Fetch departments
-        const response = await fetch(`${API_BASE_URL}/departments/`, {
-          method: 'GET',
-          credentials: 'include',
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-            'X-CSRFToken': csrfData.csrfToken,
-          },
-        });
-
-        console.log('Departments response status:', response.status);
-
-        if (!response.ok) {
-          if (response.status === 401) {
-            router.push('/login');
-            return;
-          }
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const data = await response.json();
-        console.log('Departments response data:', data);
-
-        // Handle response format
-        if (data && data.success) {
-          setDepartments(data.data || []);
-        } else if (Array.isArray(data)) {
-          setDepartments(data);
-        } else {
-          console.error('Unexpected departments response format:', data);
-          setDepartments([]);
-        }
-      } catch (error) {
-        console.error('Error fetching departments:', error);
-        setDepartments([]);
-      } finally {
-        setDepartmentsLoading(false);
-      }
-    };
-
-    fetchDepartments();
-  }, []);
-
-  // Fetch programme details if editing
-  useEffect(() => {
-    const fetchProgramme = async () => {
-      if (!programmeId) return;
-      
-      const isAuthenticated = await checkAuth();
-      if (!isAuthenticated) {
-        router.push('/login');
+      if (response.status === 401) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        setError('Session expired. Please login again.');
+        setTimeout(() => router.push('/login'), 2000);
         return;
       }
 
-      setIsEditing(true);
-      try {
-        // Get CSRF token first
-        const csrfResponse = await fetch(`${API_BASE_URL}/csrf/`, {
-          credentials: 'include',
-        });
-
-        if (!csrfResponse.ok) {
-          throw new Error('Failed to get CSRF token');
-        }
-
-        const csrfData = await csrfResponse.json();
-
-        // Fetch programmes
-        const response = await fetch(`${API_BASE_URL}/programmes/`, {
-          method: 'GET',
-          credentials: 'include',
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-            'X-CSRFToken': csrfData.csrfToken,
-          },
-        });
-
-        console.log('Programmes response status:', response.status);
-
-        if (!response.ok) {
-          if (response.status === 401) {
-            router.push('/login');
-            return;
-          }
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const data = await response.json();
-        console.log('Programmes response data:', data);
-
-        // Handle response format
-        let programmes = [];
-        if (data && data.success) {
-          programmes = data.data || [];
-        } else if (Array.isArray(data)) {
-          programmes = data;
-        } else {
-          console.error('Unexpected programmes response format:', data);
-          programmes = [];
-        }
-
-        // Find the specific programme
-        const programme = programmes.find((p: any) => p.id === parseInt(programmeId));
-        if (!programme) throw new Error('Programme not found');
-
-        setName(programme.name || '');
-        setDescription(programme.description || '');
-        setDepartment(programme.department || '');
-        setDuration(programme.duration || '');
-        setCategory(programme.category || '');
-      } catch (error: any) {
-        console.error('Error fetching programme details:', error);
-        alert('Failed to fetch programme details: ' + error.message);
-      }
-    };
-    fetchProgramme();
-  }, [programmeId]);
-
-  // Handle submit
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    
-    const isAuthenticated = await checkAuth();
-    if (!isAuthenticated) {
-      router.push('/login');
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      // Get CSRF token first
-      const csrfResponse = await fetch(`${API_BASE_URL}/csrf/`, {
-        credentials: 'include',
-      });
-
-      if (!csrfResponse.ok) {
-        throw new Error('Failed to get CSRF token');
-      }
-
-      const csrfData = await csrfResponse.json();
-
-      const payload = { 
-        name, 
-        description, 
-        department, 
-        duration, 
-        category 
-      };
-
-      let response;
-      if (isEditing) {
-        response = await fetch(`${API_BASE_URL}/programmes/${programmeId}/`, {
-          method: 'PUT',
-          credentials: 'include',
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-            'X-CSRFToken': csrfData.csrfToken,
-          },
-          body: JSON.stringify(payload),
-        });
-      } else {
-        response = await fetch(`${API_BASE_URL}/programmes/`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-            'X-CSRFToken': csrfData.csrfToken,
-          },
-          body: JSON.stringify(payload),
-        });
-      }
-
-      console.log('Save response status:', response.status);
-
       if (!response.ok) {
-        if (response.status === 401) {
-          router.push('/login');
-          return;
-        }
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const result = await response.json();
-      console.log('Save response data:', result);
+      const data = await response.json();
+      console.log('Programmes response:', data);
 
-      if (result.success) {
-        alert(isEditing ? 'Programme updated successfully!' : 'Programme added successfully!');
-        router.push('/appadmin/programmes');
+      // Handle different response formats
+      let programmesList: Programme[] = [];
+      if (data && data.success && Array.isArray(data.data)) {
+        programmesList = data.data;
+      } else if (data && Array.isArray(data)) {
+        programmesList = data;
+      } else if (data && data.programmes && Array.isArray(data.programmes)) {
+        programmesList = data.programmes;
+      } else if (data && data.results && Array.isArray(data.results)) {
+        programmesList = data.results;
       } else {
-        throw new Error(result.message || 'Failed to save programme');
+        console.error('Unexpected response format:', data);
+        programmesList = [];
       }
-    } catch (error: any) {
-      console.error('Error saving programme:', error);
-      alert(`Failed to save programme: ${error.message}`);
+
+      setProgrammes(programmesList);
+    } catch (err: any) {
+      console.error('Failed to fetch programmes:', err);
+      setError(err.message || 'Failed to fetch programmes.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleLogout = async () => {
-    try {
-      // Get CSRF token first
-      const csrfResponse = await fetch(`${API_BASE_URL}/csrf/`, {
-        credentials: 'include',
-      });
+  const handleAddProgramme = () => {
+    router.push('/appadmin/programmes/add');
+  };
 
-      if (!csrfResponse.ok) {
-        throw new Error('Failed to get CSRF token');
+  const handleEditProgramme = (id: number) => {
+    router.push(`/appadmin/programmes/${id}/edit`);
+  };
+
+  const handleViewProgramme = (id: number) => {
+    router.push(`/appadmin/programmes/${id}`);
+  };
+
+  const handleDeleteProgramme = async (id: number, name: string) => {
+    if (!confirm(`Are you sure you want to delete programme "${name}"?`)) {
+      return;
+    }
+
+    try {
+      const token = getToken();
+      
+      if (!token) {
+        setError('Please login to delete programmes');
+        return;
       }
 
-      const csrfData = await csrfResponse.json();
-
-      const response = await fetch(`${API_BASE_URL}/logout/`, {
-        method: 'POST',
-        credentials: 'include',
+      const response = await fetch(`${API_BASE_URL}/programmes/${id}/`, {
+        method: 'DELETE',
         headers: {
+          'Authorization': `Bearer ${token}`,
           'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'X-CSRFToken': csrfData.csrfToken,
         },
       });
 
-      if (response.ok) {
-        router.push('/login');
+      if (response.status === 401) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        setError('Session expired. Please login again.');
+        setTimeout(() => router.push('/login'), 2000);
+        return;
       }
-    } catch (error) {
-      console.error('Logout failed:', error);
-      router.push('/login');
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.message || `Failed to delete programme: ${response.status}`);
+      }
+
+      // Refresh the list
+      await fetchProgrammes();
+      alert('Programme deleted successfully!');
+    } catch (err: any) {
+      console.error('Failed to delete programme:', err);
+      alert(err.message || 'Failed to delete programme.');
     }
   };
 
+  const getCategoryBadgeColor = (category: string) => {
+    switch (category?.toLowerCase()) {
+      case 'undergraduate':
+        return 'bg-blue-100 text-blue-800';
+      case 'postgraduate':
+        return 'bg-purple-100 text-purple-800';
+      case 'diploma':
+        return 'bg-yellow-100 text-yellow-800';
+      case 'certificate':
+        return 'bg-green-100 text-green-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const filteredProgrammes = programmes.filter(prog => {
+    const matchesSearch = 
+      prog.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      prog.code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      prog.department?.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    const matchesCategory = filterCategory === 'all' || prog.category?.toLowerCase() === filterCategory;
+    
+    return matchesSearch && matchesCategory;
+  });
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-green-50 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 text-green-600 animate-spin mx-auto mb-4" />
+          <p className="text-gray-600">Loading programmes...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-green-50 p-4 sm:p-6">
-      <div className="max-w-2xl mx-auto">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-green-50 p-6">
+      <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <button
-            onClick={() => router.push('/appadmin/programmes')}
-            className="inline-flex items-center space-x-2 text-green-700 hover:text-green-800 font-medium mb-4 transition-colors duration-200"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span>Back to Programmes</span>
-          </button>
-
-          <div className="flex items-center space-x-3">
-            <div className="p-3 bg-green-100 rounded-xl">
-              <BookOpen className="w-8 h-8 text-green-600" />
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center space-x-3 mb-4 sm:mb-0">
+              <div className="p-3 bg-green-100 rounded-xl">
+                <BookOpen className="w-8 h-8 text-green-600" />
+              </div>
+              <div>
+                <h1 className="text-3xl font-bold text-gray-900">Programmes</h1>
+                <p className="text-gray-600 mt-1">Manage your academic programmes</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">
-                {isEditing ? 'Edit Programme' : 'Add New Programme'}
-              </h1>
-              <p className="text-gray-600 mt-1">
-                {isEditing
-                  ? 'Update the programme details below.'
-                  : 'Fill in the details to create a new programme.'}
-              </p>
-              {user && (
-                <div className="flex items-center space-x-4 mt-2">
-                  <span className="text-sm text-gray-500">
-                    Welcome, {user.username}!
-                  </span>
-                  <button
-                    onClick={handleLogout}
-                    className="text-sm text-red-600 hover:text-red-700 transition-colors"
-                  >
-                    Logout
-                  </button>
-                </div>
-              )}
-            </div>
+            
+            <button
+              onClick={handleAddProgramme}
+              className="inline-flex items-center space-x-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors duration-200 shadow-md hover:shadow-lg"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add Programme</span>
+            </button>
           </div>
         </div>
 
-        {/* Form */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-1 bg-gradient-to-r from-green-600 to-green-700"></div>
-          <form onSubmit={handleSubmit} className="p-6 sm:p-8 space-y-6">
-            <div>
-              <label className="flex items-center space-x-2 mb-3 text-sm font-semibold text-gray-700">
-                <BookOpen className="w-4 h-4 text-green-600" />
-                <span>Programme Name *</span>
-              </label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-                placeholder="Enter programme name"
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent placeholder-gray-400 transition-all duration-200"
-              />
-            </div>
-
-            <div>
-              <label className="flex items-center space-x-2 mb-3 text-sm font-semibold text-gray-700">
-                <Hash className="w-4 h-4 text-green-600" />
-                <span>Programme Description</span>
-              </label>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Enter programme description"
-                rows={4}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent placeholder-gray-400 transition-all duration-200 resize-none"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+        {/* Error Message */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <div className="flex items-start">
+              <svg className="h-5 w-5 text-red-400 mt-0.5 mr-3" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
               <div>
-                <label className="flex items-center space-x-2 mb-3 text-sm font-semibold text-gray-700">
-                  <Building className="w-4 h-4 text-green-600" />
-                  <span>Department *</span>
-                </label>
-                <div className="relative">
-                  <select
-                    value={department}
-                    onChange={(e) => setDepartment(e.target.value)}
-                    required
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none bg-white transition-all duration-200"
-                  >
-                    <option value="">Select a department</option>
-                    {departmentsLoading ? (
-                      <option value="" disabled>Loading departments...</option>
-                    ) : (
-                      departments.map((dept) => (
-                        <option key={dept.id} value={dept.name}>
-                          {dept.name} {dept.code && `(${dept.code})`}
-                        </option>
-                      ))
-                    )}
-                  </select>
-                  <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none" />
-                </div>
-                {departments.length === 0 && !departmentsLoading && (
-                  <p className="text-sm text-red-600 mt-1">
-                    No departments found. Please add departments first.
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <label className="flex items-center space-x-2 mb-3 text-sm font-semibold text-gray-700">
-                  <Calendar className="w-4 h-4 text-green-600" />
-                  <span>Duration *</span>
-                </label>
-                <div className="relative">
-                  <select
-                    value={duration}
-                    onChange={(e) => setDuration(e.target.value)}
-                    required
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none bg-white transition-all duration-200"
-                  >
-                    <option value="">Select duration</option>
-                    <option value="1 Year">1 Year</option>
-                    <option value="2 Years">2 Years</option>
-                    <option value="3 Years">3 Years</option>
-                    <option value="4 Years">4 Years</option>
-                    <option value="5 Years">5 Years</option>
-                    <option value="6 Years">6 Years</option>
-                  </select>
-                  <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none" />
-                </div>
-              </div>
-
-              <div>
-                <label className="flex items-center space-x-2 mb-3 text-sm font-semibold text-gray-700">
-                  <Tag className="w-4 h-4 text-green-600" />
-                  <span>Category *</span>
-                </label>
-                <div className="relative">
-                  <select
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                    required
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none bg-white transition-all duration-200"
-                  >
-                    <option value="">Select category</option>
-                    <option value="undergraduate">Undergraduate</option>
-                    <option value="postgraduate">Postgraduate</option>
-                    <option value="diploma">Diploma</option>
-                    <option value="certificate">Certificate</option>
-                  </select>
-                  <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none" />
-                </div>
+                <p className="text-sm text-red-700 font-medium">Error</p>
+                <p className="text-sm text-red-600 mt-1">{error}</p>
               </div>
             </div>
-
-            <div className="mt-8 pt-6 border-t border-gray-100">
-              <button
-                type="submit"
-                disabled={loading || departmentsLoading || departments.length === 0}
-                className="w-full sm:w-auto inline-flex items-center justify-center space-x-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white font-semibold px-8 py-3 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 min-w-[200px]"
-              >
-                {loading ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    <span>{isEditing ? 'Updating...' : 'Adding...'}</span>
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-4 h-4" />
-                    <span>{isEditing ? 'Update Programme' : 'Add Programme'}</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </form>
-        </div>
-
-        {/* Help Text */}
-        {departments.length === 0 && !departmentsLoading && (
-          <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-            <p className="text-sm text-yellow-800">
-              <strong>No departments found.</strong> You can still create a programme by typing the department name manually in the department field.
-            </p>
           </div>
         )}
+
+        {/* Filters and Search */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="relative flex-1 max-w-md">
+              <input
+                type="text"
+                placeholder="Search programmes by name, code, or department..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+              />
+              <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </div>
+            
+            <select
+              value={filterCategory}
+              onChange={(e) => setFilterCategory(e.target.value)}
+              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+            >
+              <option value="all">All Categories</option>
+              <option value="undergraduate">Undergraduate</option>
+              <option value="postgraduate">Postgraduate</option>
+              <option value="diploma">Diploma</option>
+              <option value="certificate">Certificate</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Programmes Table */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-gradient-to-r from-green-600 to-green-700 text-white">
+                  <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider">Code</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider">Programme Name</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider">Department</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider">Duration</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider">Category</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-4 text-center text-sm font-semibold uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {filteredProgrammes.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-12 text-center">
+                      <div className="flex flex-col items-center justify-center">
+                        <BookOpen className="w-12 h-12 text-gray-300 mb-4" />
+                        <p className="text-gray-500 text-lg font-medium">No programmes found</p>
+                        <p className="text-gray-400 text-sm mt-1">
+                          {searchTerm || filterCategory !== 'all' 
+                            ? 'Try adjusting your search or filters' 
+                            : 'Click the "Add Programme" button to create one.'}
+                        </p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredProgrammes.map((prog) => (
+                    <tr key={prog.id} className="hover:bg-green-50/30 transition-colors duration-200">
+                      <td className="px-6 py-4">
+                        <code className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-xs font-mono">
+                          {prog.code || 'N/A'}
+                        </code>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center space-x-2">
+                          <BookOpen className="w-4 h-4 text-green-600" />
+                          <span className="text-sm font-medium text-gray-900">{prog.name}</span>
+                        </div>
+                        {prog.description && (
+                          <p className="text-xs text-gray-500 mt-1 line-clamp-1">{prog.description}</p>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center space-x-2">
+                          <Building className="w-4 h-4 text-gray-400" />
+                          <span className="text-sm text-gray-600">{prog.department || 'Not Assigned'}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center space-x-2">
+                          <Calendar className="w-4 h-4 text-gray-400" />
+                          <span className="text-sm text-gray-600">{prog.duration}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getCategoryBadgeColor(prog.category)}`}>
+                          <Tag className="w-3 h-3 mr-1" />
+                          {prog.category || 'N/A'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`inline-flex items-center px-2 py-1 text-xs font-medium rounded-full ${
+                          prog.is_active
+                            ? 'bg-green-100 text-green-800'
+                            : 'bg-red-100 text-red-800'
+                        }`}>
+                          {prog.is_active ? (
+                            <CheckCircle className="w-3 h-3 mr-1" />
+                          ) : (
+                            <XCircle className="w-3 h-3 mr-1" />
+                          )}
+                          {prog.is_active ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center justify-center space-x-2">
+                          <button
+                            onClick={() => handleViewProgramme(prog.id)}
+                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors duration-200"
+                            title="View Programme"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleEditProgramme(prog.id)}
+                            className="p-2 text-yellow-600 hover:bg-yellow-50 rounded-lg transition-colors duration-200"
+                            title="Edit Programme"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteProgramme(prog.id, prog.name)}
+                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors duration-200"
+                            title="Delete Programme"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Table Footer */}
+          {filteredProgrammes.length > 0 && (
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-100">
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-gray-600">
+                  Showing <span className="font-medium">{filteredProgrammes.length}</span> of{' '}
+                  <span className="font-medium">{programmes.length}</span> programmes
+                </p>
+                <button
+                  onClick={fetchProgrammes}
+                  className="text-sm text-green-600 hover:text-green-700 font-medium"
+                >
+                  Refresh
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

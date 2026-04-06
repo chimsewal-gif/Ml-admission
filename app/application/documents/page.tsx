@@ -1,12 +1,11 @@
 'use client';
 import { useState, useEffect } from 'react';
-import Cookies from 'js-cookie';
 import { useRouter } from 'next/navigation';
 import { FileText, CreditCard, Receipt, Download, Trash2, Eye, File, Upload, CheckCircle, ArrowRight } from 'lucide-react';
 import ProgressIndicator from '@/componets/ProgressIndicator';
 import Button2 from '@/componets/Button2';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000/api';
 
 type UploadedRecord = {
   id?: number;
@@ -77,8 +76,16 @@ export default function DocumentsUploadPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  // Helper to get token from localStorage
+  const getToken = () => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('token');
+    }
+    return null;
+  };
+
   useEffect(() => {
-    const storedToken = Cookies.get('token');
+    const storedToken = getToken();
     if (!storedToken) {
       router.push('/login');
       return;
@@ -90,7 +97,7 @@ export default function DocumentsUploadPage() {
   // First, get the current user to get the applicant ID
   const fetchCurrentUser = async (authToken: string) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/user`, {
+      const res = await fetch(`${API_BASE_URL}/me/`, {
         method: 'GET',
         headers: { 
           'Authorization': `Bearer ${authToken}`,
@@ -100,8 +107,10 @@ export default function DocumentsUploadPage() {
       
       if (res.ok) {
         const userData = await res.json();
-        setApplicantId(userData.user.id);
-        fetchExistingDocuments(authToken, userData.user.id);
+        // The user ID is directly in the response
+        const userId = userData.id;
+        setApplicantId(userId);
+        fetchExistingDocuments(authToken, userId);
       } else {
         throw new Error('Failed to fetch user data');
       }
@@ -114,7 +123,7 @@ export default function DocumentsUploadPage() {
 
   const fetchExistingDocuments = async (authToken: string, applicantId: number) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/applicants/${applicantId}/documents`, {
+      const res = await fetch(`${API_BASE_URL}/applicants/${applicantId}/documents/`, {
         method: 'GET',
         headers: { 
           'Authorization': `Bearer ${authToken}`,
@@ -124,12 +133,14 @@ export default function DocumentsUploadPage() {
       
       if (res.ok) {
         const result = await res.json();
-        setUploadResult(result.record as UploadedRecord);
+        if (result.success && result.data) {
+          setUploadResult(result.data as UploadedRecord);
+        }
       } else if (res.status === 404) {
         // No documents found yet, this is normal
         console.log('No existing documents found');
       } else {
-        throw new Error('Failed to fetch documents');
+        console.error('Failed to fetch documents:', res.status);
       }
     } catch (err) {
       console.error('Error fetching existing documents:', err);
@@ -150,8 +161,8 @@ export default function DocumentsUploadPage() {
     const { name, files: selectedFiles } = e.target;
     if (selectedFiles && selectedFiles.length > 0) {
       setFiles((prev) => ({ ...prev, [name as FileField]: selectedFiles[0] }));
+      setError(null);
     }
-    setError(null);
   };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -181,7 +192,7 @@ export default function DocumentsUploadPage() {
     if (files.payment_proof) formData.append('payment_proof', files.payment_proof);
 
     try {
-      const res = await fetch(`${API_BASE_URL}/applicants/${applicantId}/documents`, {
+      const res = await fetch(`${API_BASE_URL}/applicants/${applicantId}/documents/`, {
         method: 'POST',
         body: formData,
         headers: { 
@@ -195,14 +206,28 @@ export default function DocumentsUploadPage() {
       if (contentType?.includes('application/json')) {
         result = await res.json();
       } else {
-        result = await res.text();
+        const text = await res.text();
+        try {
+          result = JSON.parse(text);
+        } catch {
+          result = { error: text };
+        }
       }
 
       if (!res.ok) {
-        throw new Error(typeof result === 'object' ? result?.error || result?.message || 'Upload failed' : result || 'Upload failed');
+        throw new Error(result?.error || result?.message || result?.detail || 'Upload failed');
       }
 
-      setUploadResult(result.record as UploadedRecord);
+      if (result.success && result.data) {
+        setUploadResult(result.data as UploadedRecord);
+      } else if (result.data) {
+        setUploadResult(result.data as UploadedRecord);
+      } else if (result.record) {
+        setUploadResult(result.record as UploadedRecord);
+      } else {
+        setUploadResult(result as UploadedRecord);
+      }
+      
       setSuccess('Documents uploaded successfully! Redirecting to application fees...');
       setFiles({ msce: null, id_card: null, payment_proof: null });
       
@@ -223,7 +248,7 @@ export default function DocumentsUploadPage() {
     if (!confirm('Are you sure you want to delete this document?')) return;
 
     try {
-      const res = await fetch(`${API_BASE_URL}/applicants/${applicantId}/documents/${field}`, {
+      const res = await fetch(`${API_BASE_URL}/applicants/${applicantId}/documents/${field}/`, {
         method: 'DELETE',
         headers: { 
           'Authorization': `Bearer ${token}`,
@@ -246,15 +271,19 @@ export default function DocumentsUploadPage() {
   };
 
   const getFileUrl = (filePath: string) => {
+    if (!filePath) return '';
+    // If it's already a full URL, return it
+    if (filePath.startsWith('http')) return filePath;
+    // Otherwise, construct the URL
     const baseUrl = API_BASE_URL.replace('/api', '');
-    return `${baseUrl}/storage/${filePath}`;
+    return `${baseUrl}${filePath}`;
   };
 
   const handleDownload = async (field: FileField, filename: string) => {
     if (!token || !applicantId) return;
 
     try {
-      const response = await fetch(`${API_BASE_URL}/applicants/${applicantId}/documents/${field}`, {
+      const response = await fetch(`${API_BASE_URL}/applicants/${applicantId}/documents/${field}/`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -273,27 +302,47 @@ export default function DocumentsUploadPage() {
       } else {
         // Fallback to direct file access
         const fileUrl = getFileUrl(uploadResult?.[field] as string);
-        window.open(fileUrl, '_blank');
+        if (fileUrl) {
+          window.open(fileUrl, '_blank');
+        } else {
+          throw new Error('No file URL available');
+        }
       }
     } catch (error) {
-      console.error('Download error, using fallback:', error);
-      const fileUrl = getFileUrl(uploadResult?.[field] as string);
-      window.open(fileUrl, '_blank');
+      console.error('Download error:', error);
+      setError('Failed to download document');
     }
   };
 
   const handleView = (field: FileField) => {
     if (!token || !applicantId) return;
     
-    const apiUrl = `${API_BASE_URL}/applicants/${applicantId}/documents/${field}`;
+    const apiUrl = `${API_BASE_URL}/applicants/${applicantId}/documents/${field}/?download=false`;
     const directUrl = getFileUrl(uploadResult?.[field] as string);
-    const newWindow = window.open(apiUrl, '_blank');
     
-    setTimeout(() => {
-      if (newWindow && newWindow.closed) {
-        window.open(directUrl, '_blank');
-      }
-    }, 1000);
+    // Try API endpoint first
+    fetch(apiUrl, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+      .then(response => {
+        if (response.ok) {
+          return response.blob();
+        }
+        throw new Error('API view failed');
+      })
+      .then(blob => {
+        const url = window.URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        window.URL.revokeObjectURL(url);
+      })
+      .catch(() => {
+        // Fallback to direct URL
+        if (directUrl) {
+          window.open(directUrl, '_blank');
+        } else {
+          setError('Unable to view document');
+        }
+      });
   };
 
   const getFileExtension = (filename: string): string => {
@@ -303,7 +352,11 @@ export default function DocumentsUploadPage() {
   const getFileName = (document: UploadedRecord, field: FileField): string => {
     const nameField = `${field}_name` as keyof UploadedRecord;
     const value = document[nameField];
-    if (typeof value === 'string') return value;
+    if (typeof value === 'string' && value) return value;
+    const filePath = document[field];
+    if (typeof filePath === 'string' && filePath) {
+      return filePath.split('/').pop() || `document.${getFileExtension(filePath).toLowerCase()}`;
+    }
     return `document.${getFileExtension((document[field] as string) || '').toLowerCase()}`;
   };
 
@@ -366,9 +419,7 @@ export default function DocumentsUploadPage() {
             {success && (
               <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-xl flex items-center">
                 <div className="flex-shrink-0">
-                  <svg className="h-5 w-5 text-green-400" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                  </svg>
+                  <CheckCircle className="h-5 w-5 text-green-400" />
                 </div>
                 <div className="ml-3">
                   <p className="text-sm text-green-700">{success}</p>
@@ -419,7 +470,7 @@ export default function DocumentsUploadPage() {
                               id={docType.name}
                               accept=".pdf,.jpg,.jpeg,.png"
                               onChange={handleFileChange}
-                              required={docType.required && !hasExistingFile}
+                              required={docType.required && !hasExistingFile && !currentFile}
                               className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
                             />
                             
@@ -472,7 +523,7 @@ export default function DocumentsUploadPage() {
                       Uploaded Documents
                     </h2>
                     <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">
-                      {Object.values(uploadResult || {}).filter(val => val && typeof val === 'string').length} files
+                      {uploadResult ? Object.values(uploadResult).filter(val => val && typeof val === 'string' && (val.includes('/') || val.includes('.pdf') || val.includes('.jpg'))).length : 0} files
                     </span>
                   </div>
 
@@ -515,7 +566,7 @@ export default function DocumentsUploadPage() {
                                 </div>
                                 
                                 <div className="grid grid-cols-2 gap-2 text-sm text-gray-600">
-                                  <div>
+                                  <div className="col-span-2">
                                     <span className="font-medium">File:</span> {fileName}
                                   </div>
                                   <div>
@@ -525,9 +576,6 @@ export default function DocumentsUploadPage() {
                                     <span className="font-medium">Status:</span> 
                                     <span className="text-green-600 font-medium ml-1">Uploaded</span>
                                   </div>
-                                  <div className="text-xs text-gray-500">
-                                    Updated: {new Date(uploadResult.updated_at || '').toLocaleDateString()}
-                                  </div>
                                 </div>
                               </div>
 
@@ -536,6 +584,7 @@ export default function DocumentsUploadPage() {
                                   onClick={() => handleView(docType.field)}
                                   className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors duration-200"
                                   title="View document"
+                                  type="button"
                                 >
                                   <Eye className="w-4 h-4" />
                                 </button>
@@ -543,6 +592,7 @@ export default function DocumentsUploadPage() {
                                   onClick={() => handleDownload(docType.field, fileName)}
                                   className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors duration-200"
                                   title="Download document"
+                                  type="button"
                                 >
                                   <Download className="w-4 h-4" />
                                 </button>
@@ -550,6 +600,7 @@ export default function DocumentsUploadPage() {
                                   onClick={() => handleDeleteDocument(docType.field)}
                                   className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors duration-200"
                                   title="Delete document"
+                                  type="button"
                                 >
                                   <Trash2 className="w-4 h-4" />
                                 </button>

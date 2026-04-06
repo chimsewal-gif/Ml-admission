@@ -18,9 +18,9 @@ const adminNavItems = [
   { label: 'Dashboard', href: '/appadmin', icon: Home },
   { label: 'Applicants', href: '/appadmin/applicants', icon: Users },
   { label: 'Applications', href: '/appadmin/applications', icon: FileText },
+  { label: 'Departments', href: '/appadmin/departments', icon: GraduationCap },
   { label: 'Fees', href: '/appadmin/fees', icon: Banknote },
   { label: 'Programmes', href: '/appadmin/programmes', icon: GraduationCap },
-  { label: 'Settings', href: '/appadmin/settings', icon: Settings },
 ];
 
 export default function AdminSidebar() {

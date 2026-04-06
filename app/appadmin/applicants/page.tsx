@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { User, Mail, Phone, BookOpen, Search, Filter, Download, Eye, MoreVertical, Users, GraduationCap } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 const API_BASE_URL = 'http://127.0.0.1:8000/api';
 
@@ -23,16 +24,36 @@ export default function ApplicantsPage() {
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [selectedApplicant, setSelectedApplicant] = useState<Applicant | null>(null);
   const [error, setError] = useState<string>('');
+  const router = useRouter();
+
+  // Helper to get token from localStorage
+  const getToken = () => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('token');
+    }
+    return null;
+  };
 
   useEffect(() => {
     const fetchApplicants = async () => {
       try {
+        const token = getToken();
+        
+        if (!token) {
+          setError('Please login to view applicants');
+          setTimeout(() => {
+            router.push('/login');
+          }, 2000);
+          setLoading(false);
+          return;
+        }
+
         console.log('Fetching applicants from:', `${API_BASE_URL}/applicants`);
         
         const response = await fetch(`${API_BASE_URL}/applicants`, {
           method: 'GET',
-          credentials: 'include',
           headers: {
+            'Authorization': `Bearer ${token}`,
             'Accept': 'application/json',
             'Content-Type': 'application/json',
           },
@@ -42,7 +63,9 @@ export default function ApplicantsPage() {
         
         if (!response.ok) {
           if (response.status === 401) {
-            throw new Error('Please login to view applicants');
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            throw new Error('Session expired. Please login again.');
           }
           throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -64,9 +87,9 @@ export default function ApplicantsPage() {
         const errorMessage = err.message || 'Failed to fetch applicants';
         setError(errorMessage);
         
-        if (err.message.includes('login')) {
+        if (err.message.includes('login') || err.message.includes('Session expired')) {
           setTimeout(() => {
-            window.location.href = '/login';
+            router.push('/login');
           }, 2000);
         }
       } finally {
@@ -75,15 +98,15 @@ export default function ApplicantsPage() {
     };
 
     fetchApplicants();
-  }, []);
+  }, [router]);
 
   // Filter applicants based on search and status
   const filteredApplicants = applicants.filter(applicant => {
     const matchesSearch = 
-      applicant.firstname.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      applicant.lastname.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      applicant.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      applicant.program.toLowerCase().includes(searchTerm.toLowerCase());
+      applicant.firstname?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      applicant.lastname?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      applicant.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      applicant.program?.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesStatus = filterStatus === 'all' || applicant.status === filterStatus;
     
@@ -138,10 +161,38 @@ export default function ApplicantsPage() {
       'postgraduate': 'Postgraduate Application',
       'diploma': 'Diploma/Certificate Programs',
       'international': 'International Student Application',
+      'weekend': 'Weekend Program',
+      'masters': 'Masters Program',
       'Not specified': 'No Program Selected'
     };
     
-    return programMap[program] || program;
+    return programMap[program] || program || 'Not specified';
+  };
+
+  const handleExport = () => {
+    // Create CSV data
+    const headers = ['ID', 'First Name', 'Last Name', 'Email', 'Phone', 'Program', 'Status', 'Application Date'];
+    const csvData = filteredApplicants.map(applicant => [
+      applicant.id,
+      applicant.firstname,
+      applicant.lastname,
+      applicant.email,
+      applicant.phone || '',
+      getProgramDisplayName(applicant.program),
+      getStatusText(applicant.status || 'user'),
+      applicant.application_date ? new Date(applicant.application_date).toLocaleDateString() : ''
+    ]);
+    
+    const csvContent = [headers, ...csvData].map(row => row.join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `applicants_${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
   };
 
   if (loading) {
@@ -168,9 +219,12 @@ export default function ApplicantsPage() {
               </p>
             </div>
             <div className="flex items-center space-x-4 mt-4 lg:mt-0">
-              <button className="flex items-center px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
+              <button 
+                onClick={handleExport}
+                className="flex items-center px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+              >
                 <Download className="w-4 h-4 mr-2" />
-                Export
+                Export CSV
               </button>
             </div>
           </div>
@@ -187,7 +241,7 @@ export default function ApplicantsPage() {
                 </div>
                 {error.includes('login') && (
                   <button
-                    onClick={() => window.location.href = '/login'}
+                    onClick={() => router.push('/login')}
                     className="text-sm bg-red-100 text-red-700 px-3 py-1 rounded hover:bg-red-200 transition-colors"
                   >
                     Login
@@ -216,7 +270,7 @@ export default function ApplicantsPage() {
                 <div>
                   <p className="text-gray-500 text-sm font-medium">Applicants</p>
                   <h3 className="text-2xl font-bold text-gray-900 mt-1">
-                    {applicants.filter(a => a.status === 'applicant').length}
+                    {applicants.filter(a => a.status === 'applicant' || a.status === 'pending').length}
                   </h3>
                 </div>
                 <div className="p-3 bg-yellow-100 rounded-xl">
@@ -317,7 +371,7 @@ export default function ApplicantsPage() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filteredApplicants.length > 0 ? (
-                  filteredApplicants.map((applicant, idx) => (
+                  filteredApplicants.map((applicant) => (
                     <tr
                       key={applicant.id}
                       className="hover:bg-blue-50/30 transition-all duration-200 group"
@@ -337,7 +391,7 @@ export default function ApplicantsPage() {
                             </div>
                           </div>
                         </div>
-                      </td>
+                       </td>
 
                       {/* Contact Information */}
                       <td className="px-6 py-4">
@@ -355,7 +409,7 @@ export default function ApplicantsPage() {
                             </span>
                           </div>
                         </div>
-                      </td>
+                       </td>
 
                       {/* Program */}
                       <td className="px-6 py-4">
@@ -365,14 +419,14 @@ export default function ApplicantsPage() {
                             {getProgramDisplayName(applicant.program)}
                           </span>
                         </div>
-                      </td>
+                       </td>
 
                       {/* Status */}
                       <td className="px-6 py-4">
                         <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(applicant.status || 'user')}`}>
                           {getStatusText(applicant.status || 'user')}
                         </span>
-                      </td>
+                       </td>
 
                       {/* Actions */}
                       <td className="px-6 py-4">
@@ -388,7 +442,7 @@ export default function ApplicantsPage() {
                             <MoreVertical className="w-4 h-4" />
                           </button>
                         </div>
-                      </td>
+                       </td>
                     </tr>
                   ))
                 ) : (
@@ -421,14 +475,6 @@ export default function ApplicantsPage() {
                   Showing <span className="font-medium">{filteredApplicants.length}</span> of{' '}
                   <span className="font-medium">{applicants.length}</span> users
                 </p>
-                <div className="flex items-center space-x-2 text-sm text-gray-600">
-                  <button className="px-3 py-1 border border-gray-300 rounded hover:bg-gray-50">
-                    Previous
-                  </button>
-                  <button className="px-3 py-1 border border-gray-300 rounded hover:bg-gray-50">
-                    Next
-                  </button>
-                </div>
               </div>
             </div>
           )}
@@ -481,7 +527,7 @@ export default function ApplicantsPage() {
                   </div>
                   {selectedApplicant.application_date && (
                     <div>
-                      <label className="text-sm text-gray-500">Join Date</label>
+                      <label className="text-sm text-gray-500">Application Date</label>
                       <p className="font-medium">
                         {new Date(selectedApplicant.application_date).toLocaleDateString()}
                       </p>

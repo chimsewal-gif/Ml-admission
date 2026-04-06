@@ -12,7 +12,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000/api';
 
 interface Department {
   id: number;
@@ -44,24 +44,37 @@ export default function AddOrEditProgrammePage() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [departmentsLoading, setDepartmentsLoading] = useState(false);
   const [user, setUser] = useState<any>(null);
-  const [csrfToken, setCsrfToken] = useState<string>('');
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Authentication check
-  useEffect(() => {
-    checkAuthStatus();
-  }, []);
+  // Helper to get token from localStorage
+  const getToken = () => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('token');
+    }
+    return null;
+  };
 
+  // Authentication check using JWT
   const checkAuthStatus = async () => {
     try {
-      console.log('🔐 Checking authentication...');
+      console.log('🔐 Checking authentication with JWT...');
       
+      const token = getToken();
+      
+      if (!token) {
+        console.log('❌ No token found');
+        setCheckingAuth(false);
+        handleAuthFailure();
+        return;
+      }
+
       const response = await fetch(`${API_BASE_URL}/me/`, {
         method: 'GET',
-        credentials: 'include',
         headers: {
+          'Authorization': `Bearer ${token}`,
           'Accept': 'application/json',
+          'Content-Type': 'application/json',
         },
       });
 
@@ -71,47 +84,35 @@ export default function AddOrEditProgrammePage() {
         const userData = await response.json();
         console.log('📊 User data:', userData);
         
-        if (userData.is_authenticated) {
+        if (userData.is_authenticated || userData.id) {
           console.log('✅ User authenticated');
           setUser(userData);
-          await fetchCsrfToken();
+          setCheckingAuth(false);
+          // Fetch departments after authentication
+          await fetchDepartments(token);
+          // Fetch programme if editing
+          if (programmeId) {
+            await fetchProgramme(token);
+          }
         } else {
           console.log('❌ User not authenticated');
+          setCheckingAuth(false);
           handleAuthFailure();
         }
+      } else if (response.status === 401) {
+        console.log('❌ Token expired or invalid');
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        setCheckingAuth(false);
+        handleAuthFailure();
       } else {
         console.log('❌ Auth failed with status:', response.status);
+        setCheckingAuth(false);
         handleAuthFailure();
       }
     } catch (error: any) {
       console.error('💥 Auth error:', error);
       setError('Unable to connect to server. Please ensure Django is running on port 8000.');
-      setCheckingAuth(false);
-    }
-  };
-
-  const fetchCsrfToken = async () => {
-    try {
-      console.log('🛡️ Fetching CSRF token...');
-      const response = await fetch(`${API_BASE_URL}/csrf/`, {
-        credentials: 'include',
-        headers: {
-          'Accept': 'application/json',
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.csrfToken) {
-          console.log('✅ CSRF token received');
-          setCsrfToken(data.csrfToken);
-          // Fetch departments after getting CSRF token
-          fetchDepartments();
-        }
-      }
-    } catch (error: any) {
-      console.error('💥 CSRF error:', error);
-    } finally {
       setCheckingAuth(false);
     }
   };
@@ -123,24 +124,26 @@ export default function AddOrEditProgrammePage() {
     }, 2000);
   };
 
-  // Fetch departments from API using session authentication
-  const fetchDepartments = async () => {
+  // Fetch departments from API using JWT
+  const fetchDepartments = async (token: string) => {
     try {
       setDepartmentsLoading(true);
       console.log('📚 Fetching departments...');
       
-      const response = await fetch(`${API_BASE_URL}/admin/departments/`, {
+      const response = await fetch(`${API_BASE_URL}/departments/`, {
         method: 'GET',
-        credentials: 'include',
         headers: {
+          'Authorization': `Bearer ${token}`,
           'Accept': 'application/json',
-          'X-CSRFToken': csrfToken,
+          'Content-Type': 'application/json',
         },
       });
 
       console.log('📊 Departments response status:', response.status);
 
       if (response.status === 401) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
         handleAuthFailure();
         return;
       }
@@ -153,12 +156,12 @@ export default function AddOrEditProgrammePage() {
       console.log('📊 Departments data:', data);
 
       // Handle different response formats
-      if (data && Array.isArray(data)) {
-        setDepartments(data); // Direct array response
-      } else if (data && data.data && Array.isArray(data.data)) {
-        setDepartments(data.data); // Paginated response
+      if (data && data.success && Array.isArray(data.data)) {
+        setDepartments(data.data);
+      } else if (data && Array.isArray(data)) {
+        setDepartments(data);
       } else if (data && data.departments && Array.isArray(data.departments)) {
-        setDepartments(data.departments); // Nested departments key
+        setDepartments(data.departments);
       } else {
         console.error('Unexpected departments response format:', data);
         setDepartments([]);
@@ -173,76 +176,79 @@ export default function AddOrEditProgrammePage() {
   };
 
   // Fetch programme details if editing
-  useEffect(() => {
-    const fetchProgramme = async () => {
-      if (!programmeId || !user?.is_authenticated) return;
+  const fetchProgramme = async (token: string) => {
+    if (!programmeId) return;
+    
+    setIsEditing(true);
+    try {
+      console.log('📖 Fetching programme details...');
       
-      setIsEditing(true);
-      try {
-        console.log('📖 Fetching programme details...');
-        
-        const response = await fetch(`${API_BASE_URL}/admin/programmes/`, {
-          method: 'GET',
-          credentials: 'include',
-          headers: {
-            'Accept': 'application/json',
-            'X-CSRFToken': csrfToken,
-          },
-        });
+      const response = await fetch(`${API_BASE_URL}/programmes/`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+      });
 
-        if (response.status === 401) {
-          handleAuthFailure();
-          return;
-        }
-
-        if (!response.ok) {
-          throw new Error(`Failed to fetch programmes: ${response.status}`);
-        }
-
-        const data = await response.json();
-        console.log('📊 Programmes data:', data);
-
-        // Handle different response formats
-        let programmes: Programme[] = [];
-        if (data && Array.isArray(data)) {
-          programmes = data; // Direct array response
-        } else if (data && data.data && Array.isArray(data.data)) {
-          programmes = data.data; // Paginated response
-        } else if (data && data.programmes && Array.isArray(data.programmes)) {
-          programmes = data.programmes; // Nested programmes key
-        } else {
-          console.error('Unexpected programmes response format:', data);
-          programmes = [];
-        }
-
-        // Find the specific programme
-        const programme = programmes.find((p: Programme) => p.id === parseInt(programmeId));
-        if (!programme) throw new Error('Programme not found');
-
-        setName(programme.name || '');
-        setDescription(programme.description || '');
-        setDepartment(programme.department || '');
-        setDuration(programme.duration || '');
-        setCategory(programme.category || '');
-      } catch (error: any) {
-        console.error('Error fetching programme details:', error);
-        setError('Failed to fetch programme details.');
+      if (response.status === 401) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        handleAuthFailure();
+        return;
       }
-    };
 
-    if (csrfToken && user?.is_authenticated) {
-      fetchProgramme();
+      if (!response.ok) {
+        throw new Error(`Failed to fetch programmes: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('📊 Programmes data:', data);
+
+      // Handle different response formats
+      let programmes: Programme[] = [];
+      if (data && data.success && Array.isArray(data.data)) {
+        programmes = data.data;
+      } else if (data && Array.isArray(data)) {
+        programmes = data;
+      } else if (data && data.programmes && Array.isArray(data.programmes)) {
+        programmes = data.programmes;
+      } else {
+        console.error('Unexpected programmes response format:', data);
+        programmes = [];
+      }
+
+      // Find the specific programme
+      const programme = programmes.find((p: Programme) => p.id === parseInt(programmeId));
+      if (!programme) throw new Error('Programme not found');
+
+      setName(programme.name || '');
+      setDescription(programme.description || '');
+      setDepartment(programme.department || '');
+      setDuration(programme.duration || '');
+      setCategory(programme.category || '');
+    } catch (error: any) {
+      console.error('Error fetching programme details:', error);
+      setError('Failed to fetch programme details.');
     }
-  }, [programmeId, user, csrfToken]);
+  };
 
-  // Handle submit using fetch instead of axios
+  // Initial auth check
+  useEffect(() => {
+    checkAuthStatus();
+  }, []);
+
+  // Handle submit using JWT
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
-    if (!user?.is_authenticated) {
+    const token = getToken();
+    if (!token) {
       setError('Please log in to continue');
+      router.push('/login');
       return;
     }
 
@@ -257,29 +263,32 @@ export default function AddOrEditProgrammePage() {
 
       console.log('🚀 Submitting programme data:', payload);
 
-      let url = `${API_BASE_URL}/admin/programmes/`;
+      let url = `${API_BASE_URL}/programmes/`;
       let method = 'POST';
 
       if (isEditing) {
-        url = `${API_BASE_URL}/admin/programmes/${programmeId}/`;
+        url = `${API_BASE_URL}/programmes/${programmeId}/`;
         method = 'PUT';
       }
 
       const response = await fetch(url, {
         method: method,
         headers: {
+          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
           'Accept': 'application/json',
-          'X-CSRFToken': csrfToken,
         },
-        credentials: 'include',
         body: JSON.stringify(payload),
       });
 
       console.log('📊 Submit response status:', response.status);
 
       if (response.status === 401) {
-        handleAuthFailure();
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        setError('Session expired. Please login again.');
+        setTimeout(() => router.push('/login'), 2000);
+        setLoading(false);
         return;
       }
 
@@ -293,7 +302,7 @@ export default function AddOrEditProgrammePage() {
       }
 
       if (!response.ok) {
-        throw new Error(data.error || data.detail || data.message || `Request failed with status ${response.status}`);
+        throw new Error(data.message || data.error || data.detail || `Request failed with status ${response.status}`);
       }
 
       alert(isEditing ? 'Programme updated successfully!' : 'Programme added successfully!');
@@ -307,6 +316,7 @@ export default function AddOrEditProgrammePage() {
     }
   };
 
+  // Show loading state
   if (checkingAuth) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-green-50 flex items-center justify-center">
@@ -314,6 +324,29 @@ export default function AddOrEditProgrammePage() {
           <div className="w-16 h-16 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <h2 className="text-xl font-semibold text-gray-800">Checking Authentication...</h2>
           <p className="text-gray-600 mt-2">Please wait while we verify your session</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error if any
+  if (error && !user) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-green-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md w-full text-center">
+          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-semibold text-gray-800 mb-2">Authentication Error</h2>
+          <p className="text-gray-600 mb-6">{error}</p>
+          <button
+            onClick={() => router.push('/login')}
+            className="bg-green-500 text-white px-6 py-2 rounded-lg hover:bg-green-600 transition-colors"
+          >
+            Go to Login
+          </button>
         </div>
       </div>
     );
@@ -349,9 +382,9 @@ export default function AddOrEditProgrammePage() {
               </div>
             </div>
             
-            {user && user.is_authenticated && (
+            {user && (
               <div className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-medium">
-                Welcome, {user.username}!
+                Welcome, {user.username || user.email || user.first_name}!
               </div>
             )}
           </div>
@@ -372,26 +405,8 @@ export default function AddOrEditProgrammePage() {
           </div>
         )}
 
-        {/* Show login prompt if not authenticated */}
-        {!user?.is_authenticated && (
-          <div className="mb-6 p-6 bg-yellow-50 border border-yellow-200 rounded-lg text-center">
-            <h3 className="text-lg font-semibold text-yellow-800 mb-2">
-              Authentication Required
-            </h3>
-            <p className="text-yellow-700 mb-4">
-              You need to be logged in to manage programmes.
-            </p>
-            <button
-              onClick={() => router.push('/login')}
-              className="bg-green-500 text-white px-6 py-2 rounded-lg hover:bg-green-600 transition-colors"
-            >
-              Go to Login
-            </button>
-          </div>
-        )}
-
-        {/* Form - Only show if authenticated */}
-        {user?.is_authenticated && (
+        {/* Form */}
+        {user && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="p-1 bg-gradient-to-r from-green-600 to-green-700"></div>
             <form onSubmit={handleSubmit} className="p-6 sm:p-8 space-y-6">
@@ -495,12 +510,10 @@ export default function AddOrEditProgrammePage() {
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none bg-white transition-all duration-200"
                     >
                       <option value="">Select category</option>
-                      <option value="Undergraduate">Undergraduate</option>
-                      <option value="Postgraduate">Postgraduate</option>
-                      <option value="Diploma">Diploma</option>
-                      <option value="Certificate">Certificate</option>
-                      <option value="Foundation">Foundation</option>
-                      <option value="Professional">Professional</option>
+                      <option value="undergraduate">Undergraduate</option>
+                      <option value="postgraduate">Postgraduate</option>
+                      <option value="diploma">Diploma</option>
+                      <option value="certificate">Certificate</option>
                     </select>
                     <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none" />
                   </div>
@@ -510,7 +523,7 @@ export default function AddOrEditProgrammePage() {
               <div className="mt-8 pt-6 border-t border-gray-100">
                 <button
                   type="submit"
-                  disabled={loading || departmentsLoading || departments.length === 0 || !user?.is_authenticated}
+                  disabled={loading || departmentsLoading || departments.length === 0}
                   className="w-full sm:w-auto inline-flex items-center justify-center space-x-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white font-semibold px-8 py-3 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 min-w-[200px]"
                 >
                   {loading ? (
@@ -531,13 +544,13 @@ export default function AddOrEditProgrammePage() {
         )}
 
         {/* Help Text */}
-        {departments.length === 0 && !departmentsLoading && user?.is_authenticated && (
+        {departments.length === 0 && !departmentsLoading && user && (
           <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
             <p className="text-sm text-yellow-800">
               <strong>No departments found.</strong> Please{' '}
               <button
                 type="button"
-                onClick={() => router.push('/appadmin/department')}
+                onClick={() => router.push('/appadmin/departments')}
                 className="text-green-600 hover:text-green-700 underline font-medium"
               >
                 add departments first
