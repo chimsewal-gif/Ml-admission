@@ -1,10 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import Cookies from 'js-cookie';
 import { useRouter } from 'next/navigation';
-import { User, Calendar, Eye, Download, X, Search, Filter, Loader } from 'lucide-react';
+import { User, Calendar, Eye, Download, X, Search, Filter, Loader, RefreshCw } from 'lucide-react';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api';
 
@@ -16,12 +15,23 @@ type Fee = {
   status: string;
   deposit_slip: string | null;
   paid_at: string;
+  email?: string;
+  phone?: string;
+};
+
+// Helper to get token from localStorage
+const getToken = () => {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('token');
+  }
+  return null;
 };
 
 export default function FeesPage() {
   const router = useRouter();
   const [fees, setFees] = useState<Fee[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [updatingId, setUpdatingId] = useState<number | null>(null);
@@ -31,33 +41,85 @@ export default function FeesPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedFee, setSelectedFee] = useState<Fee | null>(null);
 
-  useEffect(() => {
-    const fetchFees = async () => {
-      try {
-        const token = Cookies.get('token');
-        if (!token) return router.push('/login');
+  // Create axios instance with auth header
+  const apiClient = () => {
+    const token = getToken();
+    if (!token) return null;
+    return axios.create({
+      baseURL: API_BASE_URL,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      }
+    });
+  };
 
-        const res = await axios.get(`${API_BASE_URL}/admin/fees`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        
-        // Handle different response formats
-        const feesData = res.data.data || res.data;
-        setFees(Array.isArray(feesData) ? feesData : []);
-      } catch (err: any) {
-        console.error('Failed to fetch fees:', err);
+  // Fetch fees function - can be called manually
+  const fetchFees = useCallback(async (showFullLoading = true) => {
+    try {
+      if (showFullLoading) {
+        setLoading(true);
+      } else {
+        setRefreshing(true);
+      }
+      setError('');
+      
+      const token = getToken();
+      if (!token) {
+        setError('Please login to view fees');
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+
+      const client = apiClient();
+      if (!client) {
+        setError('Authentication error');
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+
+      const res = await client.get('/admin/fees');
+      
+      console.log('Fees response:', res.data);
+      
+      let feesData = [];
+      if (res.data.success && Array.isArray(res.data.data)) {
+        feesData = res.data.data;
+      } else if (Array.isArray(res.data)) {
+        feesData = res.data;
+      } else if (res.data.data && Array.isArray(res.data.data)) {
+        feesData = res.data.data;
+      } else {
+        console.error('Unexpected response format:', res.data);
+        setError('Unexpected response format from server');
+      }
+      
+      setFees(feesData);
+    } catch (err: any) {
+      console.error('Failed to fetch fees:', err);
+      
+      if (err.response?.status === 401) {
+        setError('Session expired. Please log in again.');
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+      } else if (err.response?.status === 404) {
+        setError('Fees endpoint not found. Please check if the backend is running.');
+      } else {
         const errorMessage = err.response?.data?.message || 'Failed to fetch fees';
         setError(errorMessage);
-        
-        if (err.response?.status === 401) {
-          router.push('/login');
-        }
-      } finally {
-        setLoading(false);
       }
-    };
-    fetchFees();
-  }, [router]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchFees(true);
+  }, [fetchFees]);
 
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
@@ -71,13 +133,25 @@ export default function FeesPage() {
         return 'bg-red-100 text-red-800 border-red-200';
       case 'processing':
         return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'verified':
+        return 'bg-purple-100 text-purple-800 border-purple-200';
       default:
         return 'bg-gray-100 text-gray-800 border-gray-200';
     }
   };
 
   const formatCurrency = (amount: number) =>
-    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(amount);
+    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'MWK', minimumFractionDigits: 0 }).format(amount);
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
 
   // Filter fees by search & status
   const filteredFees = fees.filter(
@@ -105,114 +179,64 @@ export default function FeesPage() {
     setError('');
 
     try {
-      const token = Cookies.get('token');
+      const token = getToken();
       if (!token) {
-        router.push('/login');
+        setError('Please login to update status');
+        setUpdatingId(null);
         return;
       }
 
-      // Use the correct endpoint from your API routes
-      const response = await axios.patch(
-        `${API_BASE_URL}/application-fees/${selectedFee.id}/status`,
-        { 
-          status: newStatus,
-          // Some APIs might expect different field names, try these if the above doesn't work:
-          // 'status': newStatus,
-          // 'payment_status': newStatus,
-        },
-        { 
-          headers: { 
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          } 
-        }
+      const client = apiClient();
+      if (!client) {
+        setError('Authentication error');
+        setUpdatingId(null);
+        return;
+      }
+
+      const response = await client.patch(
+        `/application-fees/${selectedFee.id}/status`,
+        { status: newStatus }
       );
 
       console.log('Update response:', response.data);
 
-      // Update local state
-      setFees((prev) =>
-        prev.map((fee) => 
-          fee.id === selectedFee.id ? { ...fee, status: newStatus } : fee
-        )
-      );
-      
-      closeModal();
-      
-      // Show success message
-      alert(`Status updated to ${newStatus} successfully!`);
+      if (response.data.success) {
+        await fetchFees(false);
+        closeModal();
+        alert(`Status updated to ${newStatus} successfully!`);
+      } else {
+        throw new Error(response.data.message || 'Update failed');
+      }
       
     } catch (err: any) {
       console.error('Failed to update status:', err);
-      console.error('Error response:', err.response?.data);
       
-      const errorMessage = err.response?.data?.message || 
-                          err.response?.data?.error || 
-                          'Failed to update status. Please try again.';
-      setError(errorMessage);
-      
-      // Show specific error messages for common issues
-      if (err.response?.status === 404) {
-        setError('Fee record not found. It may have been deleted.');
-      } else if (err.response?.status === 422) {
-        setError('Invalid status value. Please try again.');
-      } else if (err.response?.status === 401) {
+      if (err.response?.status === 401) {
         setError('Session expired. Please log in again.');
-        router.push('/login');
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+      } else if (err.response?.status === 404) {
+        setError('Fee record not found. It may have been deleted.');
+      } else {
+        const errorMessage = err.response?.data?.message || 
+                            err.response?.data?.error || 
+                            'Failed to update status. Please try again.';
+        setError(errorMessage);
       }
     } finally {
       setUpdatingId(null);
     }
   };
 
-  // Alternative update function if the above doesn't work
-  const updateFeeStatusAlternative = async (newStatus: string) => {
-    if (!selectedFee) return;
-
-    setUpdatingId(selectedFee.id);
-    setError('');
-
-    try {
-      const token = Cookies.get('token');
-      if (!token) {
-        router.push('/login');
-        return;
-      }
-
-      // Try PUT method instead of PATCH
-      const response = await axios.put(
-        `${API_BASE_URL}/application-fees/${selectedFee.id}`,
-        { 
-          status: newStatus 
-        },
-        { 
-          headers: { 
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          } 
-        }
-      );
-
-      console.log('Update response:', response.data);
-
-      // Update local state
-      setFees((prev) =>
-        prev.map((fee) => 
-          fee.id === selectedFee.id ? { ...fee, status: newStatus } : fee
-        )
-      );
-      
-      closeModal();
-      alert(`Status updated to ${newStatus} successfully!`);
-      
-    } catch (err: any) {
-      console.error('Failed to update status (alternative):', err);
-      const errorMessage = err.response?.data?.message || 'Failed to update status';
-      setError(errorMessage);
-    } finally {
-      setUpdatingId(null);
+  // Function to get full URL for deposit slip
+  const getDepositSlipUrl = (path: string) => {
+    if (!path) return null;
+    if (path.startsWith('http')) return path;
+    let cleanPath = path;
+    if (cleanPath.startsWith('/media/media/')) {
+      cleanPath = cleanPath.replace('/media/media/', '/media/');
     }
+    return `${API_BASE_URL.replace('/api', '')}${cleanPath}`;
   };
 
   return (
@@ -220,15 +244,41 @@ export default function FeesPage() {
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-6">
-          <h1 className="text-3xl font-bold text-gray-900 mb-1">Application Fees</h1>
-          <p className="text-gray-600">Manage and review all fee payments and deposits</p>
+          <div className="flex justify-between items-start">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 mb-1">Application Fees</h1>
+              <p className="text-gray-600">Manage and review all fee payments and deposits</p>
+              {fees.length > 0 && (
+                <p className="text-sm text-gray-500 mt-1">Total: {fees.length} payment(s)</p>
+              )}
+            </div>
+            <button
+              onClick={() => fetchFees(false)}
+              disabled={refreshing || loading}
+              className="inline-flex items-center space-x-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+              <span>Refresh</span>
+            </button>
+          </div>
         </div>
 
         {/* Error Display */}
         {error && (
           <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-            <div className="flex items-center space-x-2">
-              <span className="text-red-600 text-sm font-medium">{error}</span>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <X className="w-5 h-5 text-red-500" />
+                <span className="text-red-600 text-sm font-medium">{error}</span>
+              </div>
+              {error.includes('login') && (
+                <button
+                  onClick={() => router.push('/login')}
+                  className="text-sm bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700"
+                >
+                  Login
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -239,7 +289,7 @@ export default function FeesPage() {
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
             <input
               type="text"
-              placeholder="Search by applicant"
+              placeholder="Search by applicant name..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
@@ -254,9 +304,10 @@ export default function FeesPage() {
             >
               <option value="">All Statuses</option>
               <option value="pending">Pending</option>
+              <option value="verified">Verified</option>
               <option value="accepted">Accepted</option>
-              <option value="rejected">Rejected</option>
               <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
             </select>
           </div>
         </div>
@@ -270,7 +321,7 @@ export default function FeesPage() {
         ) : (
           <div className="bg-white rounded-xl shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[600px]">
+              <table className="w-full min-w-[800px]">
                 <thead>
                   <tr className="bg-gradient-to-r from-green-600 to-green-700 text-white">
                     <th className="px-4 py-4 text-left text-sm font-semibold uppercase tracking-wider">#</th>
@@ -286,7 +337,9 @@ export default function FeesPage() {
                   {filteredFees.length > 0 ? (
                     filteredFees.map((fee, idx) => (
                       <tr key={fee.id} className="hover:bg-green-50/50 transition-all duration-200 group">
-                        <td className="px-4 py-4 whitespace-nowrap">{idx + 1}</td>
+                        <td className="px-4 py-4 whitespace-nowrap">
+                          <span className="text-sm text-gray-500">{idx + 1}</span>
+                        </td>
                         <td className="px-4 py-4 whitespace-nowrap">
                           <div className="flex items-center space-x-3">
                             <div className="flex-shrink-0 w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
@@ -297,21 +350,28 @@ export default function FeesPage() {
                               {fee.programme && (
                                 <div className="text-xs text-gray-500">{fee.programme}</div>
                               )}
+                              {fee.email && (
+                                <div className="text-xs text-gray-400">{fee.email}</div>
+                              )}
                             </div>
                           </div>
                         </td>
-                        <td className="px-4 py-4 whitespace-nowrap">{formatCurrency(fee.amount)}</td>
                         <td className="px-4 py-4 whitespace-nowrap">
-                          <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(fee.status)}`}>
-                            {fee.status}
+                          <span className="text-sm font-semibold text-gray-900">
+                            {formatCurrency(fee.amount)}
                           </span>
                         </td>
                         <td className="px-4 py-4 whitespace-nowrap">
-                          {fee.status.toLowerCase() === 'pending' && (
+                          <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(fee.status)}`}>
+                            {fee.status.charAt(0).toUpperCase() + fee.status.slice(1)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap">
+                          {(fee.status.toLowerCase() === 'pending' || fee.status.toLowerCase() === 'verified') && (
                             <button
                               onClick={() => openModal(fee)}
                               disabled={updatingId === fee.id}
-                              className="bg-green-600 text-white px-3 py-1 rounded-lg text-xs hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                              className="bg-green-600 text-white px-3 py-1 rounded-lg text-xs hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
                             >
                               {updatingId === fee.id ? (
                                 <Loader className="w-3 h-3 animate-spin" />
@@ -320,22 +380,28 @@ export default function FeesPage() {
                               )}
                             </button>
                           )}
+                          {fee.status.toLowerCase() === 'accepted' && (
+                            <span className="text-xs text-green-600 font-medium">✓ Completed</span>
+                          )}
+                          {fee.status.toLowerCase() === 'rejected' && (
+                            <span className="text-xs text-red-600 font-medium">✗ Rejected</span>
+                          )}
                         </td>
                         <td className="px-4 py-4 whitespace-nowrap">
                           {fee.deposit_slip ? (
                             <div className="flex space-x-2">
                               <a
-                                href={fee.deposit_slip}
+                                href={getDepositSlipUrl(fee.deposit_slip)}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex items-center space-x-1 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-lg text-xs"
+                                className="inline-flex items-center space-x-1 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-lg text-xs transition-colors"
                               >
                                 <Eye className="w-3 h-3" /> <span>View</span>
                               </a>
                               <a
-                                href={fee.deposit_slip}
+                                href={getDepositSlipUrl(fee.deposit_slip)}
                                 download
-                                className="inline-flex items-center space-x-1 bg-gray-600 hover:bg-gray-700 text-white px-3 py-1 rounded-lg text-xs"
+                                className="inline-flex items-center space-x-1 bg-gray-600 hover:bg-gray-700 text-white px-3 py-1 rounded-lg text-xs transition-colors"
                               >
                                 <Download className="w-3 h-3" /> <span>Download</span>
                               </a>
@@ -347,54 +413,82 @@ export default function FeesPage() {
                         <td className="px-4 py-4 whitespace-nowrap">
                           <div className="flex items-center space-x-2">
                             <Calendar className="w-4 h-4 text-gray-400" />
-                            <span className="text-sm">{new Date(fee.paid_at).toLocaleDateString()}</span>
+                            <span className="text-sm text-gray-600">
+                              {formatDate(fee.paid_at)}
+                            </span>
                           </div>
                         </td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
-                        No fee payments found
+                      <td colSpan={7} className="px-6 py-12 text-center">
+                        <div className="flex flex-col items-center justify-center space-y-3">
+                          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center">
+                            <User className="w-8 h-8 text-gray-400" />
+                          </div>
+                          <div>
+                            <p className="text-lg font-medium text-gray-900">No fee payments found</p>
+                            <p className="text-gray-500 text-sm mt-1">
+                              {search || statusFilter 
+                                ? 'Try adjusting your search or filters' 
+                                : 'There are no fee payments to display at this time.'}
+                            </p>
+                          </div>
+                        </div>
                       </td>
                     </tr>
                   )}
                 </tbody>
               </table>
             </div>
+
+            {/* Footer with count */}
+            {filteredFees.length > 0 && (
+              <div className="px-6 py-3 bg-gray-50 border-t border-gray-100">
+                <p className="text-sm text-gray-600">
+                  Showing <span className="font-medium">{filteredFees.length}</span> of{' '}
+                  <span className="font-medium">{fees.length}</span> payment(s)
+                  {statusFilter && ` (filtered by: ${statusFilter})`}
+                </p>
+              </div>
+            )}
           </div>
         )}
 
         {/* Modal */}
         {modalOpen && selectedFee && (
-          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6 relative">
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 relative">
               <button
-                className="absolute top-3 right-3 text-gray-500 hover:text-gray-700"
+                className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
                 onClick={closeModal}
                 disabled={updatingId !== null}
               >
                 <X className="w-5 h-5" />
               </button>
               
-              <h2 className="text-lg font-bold mb-4">Update Payment Status</h2>
+              <h2 className="text-xl font-bold text-gray-900 mb-4">Update Payment Status</h2>
               
-              <div className="mb-6">
-                <p className="text-gray-700 mb-2">
-                  Applicant: <span className="font-semibold">{selectedFee.applicant_name}</span>
-                </p>
-                <p className="text-gray-700">
-                  Amount: <span className="font-semibold">{formatCurrency(selectedFee.amount)}</span>
-                </p>
-                <p className="text-gray-700">
-                  Current Status: <span className={`font-semibold ${getStatusColor(selectedFee.status)} px-2 py-1 rounded`}>
-                    {selectedFee.status}
+              <div className="mb-6 space-y-3">
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <p className="text-sm text-gray-500">Applicant</p>
+                  <p className="font-semibold text-gray-900">{selectedFee.applicant_name}</p>
+                </div>
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <p className="text-sm text-gray-500">Amount</p>
+                  <p className="font-semibold text-gray-900">{formatCurrency(selectedFee.amount)}</p>
+                </div>
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <p className="text-sm text-gray-500">Current Status</p>
+                  <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(selectedFee.status)}`}>
+                    {selectedFee.status.charAt(0).toUpperCase() + selectedFee.status.slice(1)}
                   </span>
-                </p>
+                </div>
               </div>
 
               {error && (
-                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded">
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
                   <p className="text-red-700 text-sm">{error}</p>
                 </div>
               )}
@@ -403,23 +497,17 @@ export default function FeesPage() {
                 <button
                   onClick={() => updateFeeStatus('rejected')}
                   disabled={updatingId !== null}
-                  className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
                 >
-                  {updatingId === selectedFee.id ? <Loader className="w-4 h-4 animate-spin" /> : 'Reject'}
+                  {updatingId === selectedFee.id ? <Loader className="w-4 h-4 animate-spin" /> : 'Reject Payment'}
                 </button>
                 <button
                   onClick={() => updateFeeStatus('accepted')}
                   disabled={updatingId !== null}
-                  className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
                 >
-                  {updatingId === selectedFee.id ? <Loader className="w-4 h-4 animate-spin" /> : 'Accept'}
+                  {updatingId === selectedFee.id ? <Loader className="w-4 h-4 animate-spin" /> : 'Accept Payment'}
                 </button>
-              </div>
-
-              {/* Debug info */}
-              <div className="mt-4 p-2 bg-gray-50 rounded text-xs text-gray-500">
-                <p>Fee ID: {selectedFee.id}</p>
-                <p>Endpoint: {API_BASE_URL}/application-fees/{selectedFee.id}/status</p>
               </div>
             </div>
           </div>

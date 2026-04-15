@@ -2,21 +2,19 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import Cookies from 'js-cookie';
-import axios from 'axios';
 import { 
   Users, 
   FileText, 
   GraduationCap, 
   Banknote, 
   ArrowRight, 
-  TrendingUp, 
-  Eye, 
-  Settings, 
   RefreshCw, 
   AlertCircle,
   Home,
-  LogOut
+  LogOut,
+  Activity,
+  Shield,
+  Clock
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
@@ -40,10 +38,20 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
-  const [useDemoData, setUseDemoData] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
+  // Helper to get token from localStorage (JWT)
+  const getToken = () => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('token');
+    }
+    return null;
+  };
 
   const fetchUserData = () => {
-    const userData = Cookies.get('user');
+    const userData = localStorage.getItem('user');
+    const token = getToken();
+    
     if (userData) {
       try {
         setUser(JSON.parse(userData));
@@ -51,169 +59,144 @@ export default function AdminDashboardPage() {
         console.error('Failed to parse user data:', e);
       }
     }
-  };
-
-  // Function to fetch demo data (fallback)
-  const loadDemoData = () => {
-    setStats({
-      totalApplicants: 1524,
-      totalApplications: 1893,
-      totalFees: 12500000,
-      totalProgrammes: 42
-    });
-    setUseDemoData(true);
-    setError('Connected with demo data. To use real data, implement the /api/dashboard/stats/ endpoint in Django.');
+    
+    if (!token) {
+      setError('No authentication token found. Please login again.');
+      setTimeout(() => {
+        router.push('/login');
+      }, 2000);
+    }
   };
 
   const fetchStats = async () => {
     try {
       setLoading(true);
       setError(null);
-      setUseDemoData(false);
       
-      // First try to get the CSRF token
-      let csrfToken = Cookies.get('csrftoken');
+      const token = getToken();
       
-      if (!csrfToken) {
-        try {
-          const csrfResponse = await axios.get(`${API_BASE_URL}/csrf/`, {
-            withCredentials: true
-          });
-          csrfToken = csrfResponse.data.csrfToken;
-          if (csrfToken) {
-            Cookies.set('csrftoken', csrfToken);
-          }
-        } catch (csrfError) {
-          console.warn('Could not fetch CSRF token:', csrfError);
-        }
+      if (!token) {
+        setError('Please login to view dashboard');
+        setTimeout(() => {
+          router.push('/login');
+        }, 2000);
+        setLoading(false);
+        return;
       }
 
       console.log('Fetching dashboard stats from API...');
       
-      // Try to get user info first to verify authentication
+      // Get user info to verify authentication
       try {
-        const userResponse = await axios.get(`${API_BASE_URL}/user/`, {
+        const userResponse = await fetch(`${API_BASE_URL}/user/`, {
+          method: 'GET',
           headers: {
+            'Authorization': `Bearer ${token}`,
             'Accept': 'application/json',
-            'X-CSRFToken': csrfToken || '',
+            'Content-Type': 'application/json',
           },
-          withCredentials: true,
         });
         
-        if (userResponse.data && userResponse.data.username) {
-          setUser(userResponse.data);
-          Cookies.set('user', JSON.stringify(userResponse.data));
+        if (userResponse.ok) {
+          const userData = await userResponse.json();
+          if (userData && userData.username) {
+            setUser(userData);
+            localStorage.setItem('user', JSON.stringify(userData));
+          }
+        } else if (userResponse.status === 401) {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          throw new Error('Session expired. Please login again.');
         }
       } catch (userError) {
-        console.log('Could not fetch user info, proceeding anyway:', userError);
+        console.log('Could not fetch user info:', userError);
       }
 
-      // Try the main dashboard endpoint
-      try {
-        const response = await axios.get(`${API_BASE_URL}/dashboard/stats/`, {
-          headers: {
-            'Accept': 'application/json',
-            'X-CSRFToken': csrfToken || '',
-          },
-          withCredentials: true,
-        });
+      // Fetch dashboard stats
+      const response = await fetch(`${API_BASE_URL}/dashboard/stats/`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+      });
 
-        console.log('Dashboard stats response:', response.data);
+      console.log('Dashboard stats response status:', response.status);
 
-        if (response.status === 200) {
-          const data = response.data;
-          
-          // Handle different response formats
-          if (data.success && data.data) {
-            setStats(data.data);
-          } else if (data.totalApplicants !== undefined) {
-            setStats(data);
-          } else if (data.applicants !== undefined) {
-            setStats({
-              totalApplicants: data.applicants || 0,
-              totalApplications: data.applications || 0,
-              totalFees: data.fees || 0,
-              totalProgrammes: data.programmes || 0
-            });
-          } else {
-            // If data format is unexpected, use demo data
-            console.warn('Unexpected data format, using demo data');
-            loadDemoData();
-          }
-          return;
+      if (!response.ok) {
+        if (response.status === 401) {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          throw new Error('Session expired. Please login again.');
         }
-      } catch (endpointError) {
-        console.log('Main endpoint failed, checking for alternative...');
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      // If main endpoint fails, try to check if we have any data from other endpoints
-      try {
-        // Try to get any available data from the system
-        const [applicantsRes, applicationsRes] = await Promise.allSettled([
-          axios.get(`${API_BASE_URL}/applicants/count/`, {
-            headers: { 'X-CSRFToken': csrfToken || '' },
-            withCredentials: true,
-          }),
-          axios.get(`${API_BASE_URL}/applications/count/`, {
-            headers: { 'X-CSRFToken': csrfToken || '' },
-            withCredentials: true,
-          })
-        ]);
+      const data = await response.json();
+      console.log('Dashboard stats response:', data);
 
-        let applicants = 0;
-        let applications = 0;
-        let fees = 0;
-        let programmes = 0;
-
-        if (applicantsRes.status === 'fulfilled') {
-          applicants = applicantsRes.value.data.count || 0;
-        }
-        
-        if (applicationsRes.status === 'fulfilled') {
-          applications = applicationsRes.value.data.count || 0;
-        }
-
-        // If we got some real data, use it with demo data for missing parts
-        if (applicants > 0 || applications > 0) {
+      if (data && data.success) {
+        // Handle response format
+        if (data.data) {
+          setStats(data.data);
+        } else if (data.totalApplicants !== undefined) {
+          setStats(data);
+        } else if (data.applicants !== undefined) {
           setStats({
-            totalApplicants: applicants || 1524,
-            totalApplications: applications || 1893,
-            totalFees: fees || 12500000,
-            totalProgrammes: programmes || 42
+            totalApplicants: data.applicants || 0,
+            totalApplications: data.applications || 0,
+            totalFees: data.fees || 0,
+            totalProgrammes: data.programmes || 0
           });
-          setError('Partial data loaded. Implement /api/dashboard/stats/ for complete dashboard.');
-          return;
         }
-      } catch (altError) {
-        console.log('Alternative endpoints also failed');
+        setLastUpdated(new Date());
+        setError('');
+      } else {
+        setError(data.message || 'Invalid data format received from server');
       }
-
-      // If everything fails, use demo data
-      loadDemoData();
 
     } catch (error: any) {
-      console.error('Error in dashboard:', error);
-      // Use demo data as fallback
-      loadDemoData();
+      console.error('Error fetching dashboard stats:', error);
+      
+      if (error.message.includes('login') || error.message.includes('Session expired')) {
+        setError('Session expired. Please login again.');
+        setTimeout(() => {
+          router.push('/login');
+        }, 2000);
+      } else if (error.message.includes('HTTP error! status: 404')) {
+        setError('Dashboard endpoint not found. Please check API configuration.');
+      } else if (error.message.includes('fetch')) {
+        setError('Cannot connect to server. Please check if the backend is running.');
+      } else {
+        setError(error.message || 'Failed to load dashboard data');
+      }
     } finally {
       setLoading(false);
     }
   };
 
   const handleLogout = async () => {
+    const token = getToken();
+    
     try {
-      await axios.post(`${API_BASE_URL}/logout/`, {}, {
-        withCredentials: true,
-        headers: {
-          'X-CSRFToken': Cookies.get('csrftoken') || ''
-        }
-      });
+      if (token) {
+        await fetch(`${API_BASE_URL}/logout/`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+        });
+      }
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
-      Cookies.remove('user');
-      Cookies.remove('csrftoken');
-      Cookies.remove('sessionid');
+      // Clear all stored data
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      localStorage.removeItem('csrftoken');
       router.push('/login');
     }
   };
@@ -236,98 +219,66 @@ export default function AdminDashboardPage() {
     }).format(amount);
   };
 
+  const formatTime = (date: Date) => {
+    return date.toLocaleTimeString();
+  };
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50/30 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50/30 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
           <p className="text-gray-600">Loading dashboard...</p>
-          <p className="text-sm text-gray-500 mt-2">Connecting to the server</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50/30 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md w-full">
+          <div className="flex items-center justify-center mb-4">
+            <AlertCircle className="w-12 h-12 text-red-500" />
+          </div>
+          <h2 className="text-xl font-bold text-center text-gray-900 mb-2">Error Loading Dashboard</h2>
+          <p className="text-gray-600 text-center mb-6">{error}</p>
+          <div className="flex space-x-3">
+            <button
+              onClick={fetchStats}
+              className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Try Again
+            </button>
+            <button
+              onClick={handleLogout}
+              className="flex-1 bg-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-300 transition-colors"
+            >
+              Logout
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50/30">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50/30">
       {/* Top Navigation */}
-      <nav className="bg-white border-b border-gray-100 shadow-sm">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-8">
-              <div className="flex items-center space-x-3">
-                <div className="h-10 w-10 bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg flex items-center justify-center">
-                  <span className="text-white font-bold text-xl">M</span>
-                </div>
-                <div>
-                  <h1 className="text-xl font-bold text-gray-900">Mzuzu University</h1>
-                  <p className="text-sm text-gray-500">Admin Portal</p>
-                </div>
-              </div>
-              
-              <div className="hidden md:flex items-center space-x-6">
-                <Link href="/" className="text-gray-700 hover:text-blue-600 transition-colors">
-                  <Home className="w-5 h-5" />
-                </Link>
-                <button
-                  onClick={fetchStats}
-                  className="text-gray-700 hover:text-blue-600 transition-colors"
-                  title="Refresh Data"
-                >
-                  <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
-                </button>
-              </div>
-            </div>
-            
-            <div className="flex items-center space-x-4">
-              {user && (
-                <div className="hidden md:block text-right">
-                  <p className="text-sm font-medium text-gray-900">{user.username || 'Admin'}</p>
-                  <p className="text-xs text-gray-500">Administrator</p>
-                </div>
-              )}
-              <div className="flex items-center space-x-2">
-                <div className={`w-2 h-2 rounded-full ${useDemoData ? 'bg-yellow-500' : 'bg-green-500'} animate-pulse`}></div>
-                <span className="text-sm text-gray-600">{useDemoData ? 'Demo Mode' : 'Online'}</span>
-              </div>
-              <button
-                onClick={handleLogout}
-                className="flex items-center space-x-2 px-4 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-colors"
-              >
-                <LogOut className="w-4 h-4" />
-                <span className="text-sm font-medium">Logout</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </nav>
-
+      
       <div className="p-6 max-w-7xl mx-auto">
         {/* Welcome Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Welcome back, {user?.username || 'Administrator'}!
+            Welcome back, {user?.first_name || user?.username || 'Administrator'}!
           </h1>
           <p className="text-gray-600">
             Here's what's happening with your admissions system today.
           </p>
-          
-          {/* Demo Data Warning */}
-          {useDemoData && (
-            <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start">
-              <AlertCircle className="w-5 h-5 text-blue-600 mr-3 mt-0.5 flex-shrink-0" />
-              <div className="flex-1">
-                <p className="text-sm text-blue-800 font-medium">Using Demo Dashboard Data</p>
-                <p className="text-sm text-blue-700 mt-1">
-                  The dashboard is showing demo data. To see real statistics, implement the backend endpoint.
-                </p>
-                <div className="mt-2 text-xs text-blue-600">
-                  <p>Add this to your Django <code>urls.py</code>:</p>
-                  <code className="block bg-blue-100 p-2 rounded mt-1 font-mono">
-                    path('api/dashboard/stats/', views.dashboard_stats, name='dashboard_stats'),
-                  </code>
-                </div>
-              </div>
+          {lastUpdated && (
+            <div className="flex items-center space-x-2 mt-2 text-sm text-gray-500">
+              <Clock className="w-4 h-4" />
+              <span>Last updated: {formatTime(lastUpdated)}</span>
             </div>
           )}
         </div>
@@ -335,79 +286,55 @@ export default function AdminDashboardPage() {
         {/* Stats Overview */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           {/* Applicants Card */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-lg transition-all duration-300 group">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-lg transition-all duration-300 group">
             <div className="flex items-center justify-between mb-4">
-              <div className="p-3 bg-blue-50 rounded-lg group-hover:bg-blue-100 transition-colors">
+              <div className="p-3 bg-blue-50 rounded-xl group-hover:bg-blue-100 transition-colors">
                 <Users className="w-6 h-6 text-blue-600" />
               </div>
-              {!useDemoData && <div className="text-green-500 text-sm font-medium">+12.5%</div>}
             </div>
             <h3 className="text-sm font-medium text-gray-500 mb-1">Total Applicants</h3>
-            <div className="flex items-baseline justify-between">
-              <p className="text-2xl font-bold text-gray-900">
-                {formatNumber(stats.totalApplicants)}
-              </p>
-              <div className="text-xs font-medium bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
-                {useDemoData ? 'Demo' : 'Active'}
-              </div>
-            </div>
+            <p className="text-2xl font-bold text-gray-900">
+              {formatNumber(stats.totalApplicants)}
+            </p>
           </div>
 
           {/* Applications Card */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-lg transition-all duration-300 group">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-lg transition-all duration-300 group">
             <div className="flex items-center justify-between mb-4">
-              <div className="p-3 bg-purple-50 rounded-lg group-hover:bg-purple-100 transition-colors">
+              <div className="p-3 bg-purple-50 rounded-xl group-hover:bg-purple-100 transition-colors">
                 <FileText className="w-6 h-6 text-purple-600" />
               </div>
-              {!useDemoData && <div className="text-green-500 text-sm font-medium">+8.2%</div>}
             </div>
             <h3 className="text-sm font-medium text-gray-500 mb-1">Total Applications</h3>
-            <div className="flex items-baseline justify-between">
-              <p className="text-2xl font-bold text-gray-900">
-                {formatNumber(stats.totalApplications)}
-              </p>
-              <div className="text-xs font-medium bg-purple-100 text-purple-800 px-2 py-1 rounded-full">
-                {useDemoData ? 'Demo' : 'Processing'}
-              </div>
-            </div>
+            <p className="text-2xl font-bold text-gray-900">
+              {formatNumber(stats.totalApplications)}
+            </p>
           </div>
 
           {/* Fees Card */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-lg transition-all duration-300 group">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-lg transition-all duration-300 group">
             <div className="flex items-center justify-between mb-4">
-              <div className="p-3 bg-green-50 rounded-lg group-hover:bg-green-100 transition-colors">
+              <div className="p-3 bg-green-50 rounded-xl group-hover:bg-green-100 transition-colors">
                 <Banknote className="w-6 h-6 text-green-600" />
               </div>
-              {!useDemoData && <div className="text-green-500 text-sm font-medium">+24.7%</div>}
             </div>
             <h3 className="text-sm font-medium text-gray-500 mb-1">Fees Collected</h3>
-            <div className="flex items-baseline justify-between">
-              <p className="text-2xl font-bold text-gray-900">
-                {formatCurrency(stats.totalFees)}
-              </p>
-              <div className="text-xs font-medium bg-green-100 text-green-800 px-2 py-1 rounded-full">
-                {useDemoData ? 'Demo' : 'Revenue'}
-              </div>
-            </div>
+            <p className="text-2xl font-bold text-gray-900">
+              {formatCurrency(stats.totalFees)}
+            </p>
           </div>
 
           {/* Programmes Card */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-lg transition-all duration-300 group">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-lg transition-all duration-300 group">
             <div className="flex items-center justify-between mb-4">
-              <div className="p-3 bg-orange-50 rounded-lg group-hover:bg-orange-100 transition-colors">
+              <div className="p-3 bg-orange-50 rounded-xl group-hover:bg-orange-100 transition-colors">
                 <GraduationCap className="w-6 h-6 text-orange-600" />
               </div>
-              {!useDemoData && <div className="text-green-500 text-sm font-medium">+3.5%</div>}
             </div>
             <h3 className="text-sm font-medium text-gray-500 mb-1">Programmes</h3>
-            <div className="flex items-baseline justify-between">
-              <p className="text-2xl font-bold text-gray-900">
-                {formatNumber(stats.totalProgrammes)}
-              </p>
-              <div className="text-xs font-medium bg-orange-100 text-orange-800 px-2 py-1 rounded-full">
-                {useDemoData ? 'Demo' : 'Available'}
-              </div>
-            </div>
+            <p className="text-2xl font-bold text-gray-900">
+              {formatNumber(stats.totalProgrammes)}
+            </p>
           </div>
         </div>
 
@@ -427,9 +354,9 @@ export default function AdminDashboardPage() {
           
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <Link href="/appadmin/applicants">
-              <div className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-lg cursor-pointer transition-all duration-300 group hover:border-blue-300">
+              <div className="bg-white border border-gray-200 rounded-2xl p-6 hover:shadow-lg cursor-pointer transition-all duration-300 group hover:border-blue-300">
                 <div className="flex items-center justify-between mb-4">
-                  <div className="p-3 bg-blue-50 rounded-lg">
+                  <div className="p-3 bg-blue-50 rounded-xl">
                     <Users className="w-6 h-6 text-blue-600" />
                   </div>
                   <ArrowRight className="w-5 h-5 text-gray-400 group-hover:text-blue-600 transform group-hover:translate-x-1 transition-transform" />
@@ -440,9 +367,9 @@ export default function AdminDashboardPage() {
             </Link>
 
             <Link href="/appadmin/applications">
-              <div className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-lg cursor-pointer transition-all duration-300 group hover:border-purple-300">
+              <div className="bg-white border border-gray-200 rounded-2xl p-6 hover:shadow-lg cursor-pointer transition-all duration-300 group hover:border-purple-300">
                 <div className="flex items-center justify-between mb-4">
-                  <div className="p-3 bg-purple-50 rounded-lg">
+                  <div className="p-3 bg-purple-50 rounded-xl">
                     <FileText className="w-6 h-6 text-purple-600" />
                   </div>
                   <ArrowRight className="w-5 h-5 text-gray-400 group-hover:text-purple-600 transform group-hover:translate-x-1 transition-transform" />
@@ -453,9 +380,9 @@ export default function AdminDashboardPage() {
             </Link>
 
             <Link href="/appadmin/fees">
-              <div className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-lg cursor-pointer transition-all duration-300 group hover:border-green-300">
+              <div className="bg-white border border-gray-200 rounded-2xl p-6 hover:shadow-lg cursor-pointer transition-all duration-300 group hover:border-green-300">
                 <div className="flex items-center justify-between mb-4">
-                  <div className="p-3 bg-green-50 rounded-lg">
+                  <div className="p-3 bg-green-50 rounded-xl">
                     <Banknote className="w-6 h-6 text-green-600" />
                   </div>
                   <ArrowRight className="w-5 h-5 text-gray-400 group-hover:text-green-600 transform group-hover:translate-x-1 transition-transform" />
@@ -466,9 +393,9 @@ export default function AdminDashboardPage() {
             </Link>
 
             <Link href="/appadmin/programmes">
-              <div className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-lg cursor-pointer transition-all duration-300 group hover:border-orange-300">
+              <div className="bg-white border border-gray-200 rounded-2xl p-6 hover:shadow-lg cursor-pointer transition-all duration-300 group hover:border-orange-300">
                 <div className="flex items-center justify-between mb-4">
-                  <div className="p-3 bg-orange-50 rounded-lg">
+                  <div className="p-3 bg-orange-50 rounded-xl">
                     <GraduationCap className="w-6 h-6 text-orange-600" />
                   </div>
                   <ArrowRight className="w-5 h-5 text-gray-400 group-hover:text-orange-600 transform group-hover:translate-x-1 transition-transform" />
@@ -480,15 +407,30 @@ export default function AdminDashboardPage() {
           </div>
         </div>
 
+        {/* System Status */}
+        <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-2xl p-6 text-white">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <Shield className="w-8 h-8" />
+              <div>
+                <h3 className="text-lg font-semibold">System Status</h3>
+                <p className="text-blue-100 text-sm">All systems operational</p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Activity className="w-5 h-5 animate-pulse" />
+              <span className="text-sm font-medium">Active</span>
+            </div>
+          </div>
+        </div>
+
         {/* Footer */}
         <div className="mt-8 pt-6 border-t border-gray-200 text-center">
           <p className="text-gray-500 text-sm">
-            Mzuzu University Administration System • {useDemoData ? 'Demo Mode' : 'Live Mode'}
+            Mzuzu University Administration System
           </p>
           <p className="text-xs text-gray-400 mt-1">
-            {useDemoData 
-              ? 'Implement /api/dashboard/stats/ endpoint for real data' 
-              : 'All systems operational'}
+            Secure JWT Authentication • Real-time Data
           </p>
         </div>
       </div>

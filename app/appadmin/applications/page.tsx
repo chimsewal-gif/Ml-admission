@@ -3,7 +3,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import Cookies from 'js-cookie';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { 
@@ -47,6 +46,29 @@ const ML_FILTER_OPTIONS = {
   NOT_ANALYZED: 'not_analyzed'
 };
 
+// Helper to get token from localStorage
+const getToken = () => {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('token');
+  }
+  return null;
+};
+
+// Helper to get user from localStorage
+const getUser = () => {
+  if (typeof window !== 'undefined') {
+    const userStr = localStorage.getItem('user');
+    if (userStr) {
+      try {
+        return JSON.parse(userStr);
+      } catch (e) {
+        return null;
+      }
+    }
+  }
+  return null;
+};
+
 export default function ApplicationsPage() {
   const router = useRouter();
   const [applications, setApplications] = useState<ApplicantSubmission[]>([]);
@@ -67,23 +89,41 @@ export default function ApplicationsPage() {
   const [analysisInProgress, setAnalysisInProgress] = useState<number[]>([]);
   const [autoProcessing, setAutoProcessing] = useState(false);
 
+  // Create axios instance with auth header
+  const apiClient = useCallback(() => {
+    const token = getToken();
+    if (!token) {
+      return null;
+    }
+    return axios.create({
+      baseURL: API_BASE_URL,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      }
+    });
+  }, []);
+
   const fetchApplications = async () => {
     try {
       setLoading(true);
       setError(null);
       
-      const token = Cookies.get('token');
+      const token = getToken();
       if (!token) {
+        console.log('No token found, redirecting to login...');
         router.push('/login');
         return;
       }
 
-      const res = await axios.get(`${API_BASE_URL}/applicant-submissions`, {
-        headers: { 
-          Authorization: `Bearer ${token}`,
-          'Accept': 'application/json'
-        },
-      });
+      const client = apiClient();
+      if (!client) {
+        router.push('/login');
+        return;
+      }
+
+      const res = await client.get('/applicant-submissions');
 
       // Handle different response formats
       let applicationsData: ApplicantSubmission[] = [];
@@ -112,7 +152,12 @@ export default function ApplicationsPage() {
   const handleError = (err: any) => {
     if (err.response?.status === 401) {
       setError('Session expired. Please log in again.');
-      router.push('/login');
+      // Clear localStorage and redirect to login
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      setTimeout(() => {
+        router.push('/login');
+      }, 2000);
     } else if (err.response?.status === 403) {
       setError('You do not have permission to view applications.');
     } else if (err.response?.status === 404) {
@@ -132,7 +177,7 @@ export default function ApplicationsPage() {
       setAutoProcessing(true);
       setError(null);
 
-      const token = Cookies.get('token');
+      const token = getToken();
       if (!token) {
         return;
       }
@@ -153,6 +198,9 @@ export default function ApplicationsPage() {
       let processedCount = 0;
       let analyzedCount = 0;
 
+      const client = apiClient();
+      if (!client) return;
+
       for (const application of pendingApplications) {
         try {
           // Analyze application with ML
@@ -160,17 +208,11 @@ export default function ApplicationsPage() {
           analyzedCount++;
 
           // Update application with ML prediction
-          await axios.patch(
-            `${API_BASE_URL}/applicant-submissions/${application.id}/ml-prediction`,
+          await client.patch(
+            `/applicant-submissions/${application.id}/ml-prediction`,
             { 
               ml_prediction: prediction,
               last_analyzed_at: new Date().toISOString()
-            },
-            { 
-              headers: { 
-                Authorization: `Bearer ${token}`,
-                'Content-Type': 'application/json'
-              } 
             }
           );
 
@@ -185,17 +227,11 @@ export default function ApplicationsPage() {
             }
 
             if (newStatus) {
-              await axios.patch(
-                `${API_BASE_URL}/applicant-submissions/${application.id}/status`,
+              await client.patch(
+                `/applicant-submissions/${application.id}/status`,
                 { 
                   status: newStatus,
                   auto_processed: true 
-                },
-                { 
-                  headers: { 
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                  } 
                 }
               );
               processedCount++;
@@ -238,11 +274,11 @@ export default function ApplicationsPage() {
     } finally {
       setAutoProcessing(false);
     }
-  }, [applications]);
+  }, [applications, apiClient]);
 
   useEffect(() => {
     fetchApplications();
-  }, [router]);
+  }, []);
 
   // Auto-process when applications are loaded and there are unprocessed ones
   useEffect(() => {
@@ -292,24 +328,20 @@ export default function ApplicationsPage() {
   const updateStatus = async (id: number, newStatus: string) => {
     try {
       setUpdatingId(id);
-      const token = Cookies.get('token');
+      const token = getToken();
       
       if (!token) {
         router.push('/login');
         return;
       }
 
-      const res = await axios.patch(
-        `${API_BASE_URL}/applicant-submissions/${id}/status`,
-        { status: newStatus },
-        { 
-          headers: { 
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          } 
-        }
-      );
+      const client = apiClient();
+      if (!client) {
+        router.push('/login');
+        return;
+      }
+
+      const res = await client.patch(`/applicant-submissions/${id}/status`, { status: newStatus });
 
       if (res.data.success) {
         setApplications(prev => prev.map(app => 
@@ -328,6 +360,12 @@ export default function ApplicationsPage() {
     } catch (err: any) {
       console.error('Failed to update status:', err);
       setError(err.response?.data?.error || 'Failed to update status. Please try again.');
+      
+      if (err.response?.status === 401) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        setTimeout(() => router.push('/login'), 2000);
+      }
     } finally {
       setUpdatingId(null);
     }
@@ -339,27 +377,24 @@ export default function ApplicationsPage() {
       setAnalysisInProgress(prev => [...prev, application.id]);
       setError(null);
 
-      const token = Cookies.get('token');
+      const token = getToken();
       if (!token) {
         router.push('/login');
-        return;
+        return null;
       }
+
+      const client = apiClient();
+      if (!client) return null;
 
       // Get ML prediction
       const prediction = await mlService.predictApplication(application);
       
       // Update application with ML prediction
-      const updateRes = await axios.patch(
-        `${API_BASE_URL}/applicant-submissions/${application.id}/ml-prediction`,
+      await client.patch(
+        `/applicant-submissions/${application.id}/ml-prediction`,
         { 
           ml_prediction: prediction,
           last_analyzed_at: new Date().toISOString()
-        },
-        { 
-          headers: { 
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          } 
         }
       );
 
@@ -379,6 +414,12 @@ export default function ApplicationsPage() {
     } catch (err: any) {
       console.error('ML prediction failed:', err);
       setError('Failed to get ML prediction. Please try again.');
+      
+      if (err.response?.status === 401) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        setTimeout(() => router.push('/login'), 2000);
+      }
       return null;
     } finally {
       setProcessingId(null);
@@ -416,6 +457,12 @@ export default function ApplicationsPage() {
     try {
       setBatchProcessing(true);
       setError(null);
+
+      const token = getToken();
+      if (!token) {
+        router.push('/login');
+        return;
+      }
 
       const pendingApplications = applications.filter(app => 
         (app.status === 'submitted' || app.status === 'pending') && !app.auto_processed
@@ -460,6 +507,12 @@ export default function ApplicationsPage() {
     } catch (err: any) {
       console.error('Batch processing failed:', err);
       setError('Batch processing failed. Please try again.');
+      
+      if (err.response?.status === 401) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        setTimeout(() => router.push('/login'), 2000);
+      }
     } finally {
       setBatchProcessing(false);
     }
@@ -469,6 +522,12 @@ export default function ApplicationsPage() {
     try {
       setBatchProcessing(true);
       setError(null);
+
+      const token = getToken();
+      if (!token) {
+        router.push('/login');
+        return;
+      }
 
       const unanalyzedApplications = applications.filter(app => !app.ml_prediction);
 
@@ -483,6 +542,12 @@ export default function ApplicationsPage() {
     } catch (err: any) {
       console.error('Batch analysis failed:', err);
       setError('Batch analysis failed. Please try again.');
+      
+      if (err.response?.status === 401) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        setTimeout(() => router.push('/login'), 2000);
+      }
     } finally {
       setBatchProcessing(false);
     }
@@ -576,6 +641,7 @@ export default function ApplicationsPage() {
       (applications.filter(app => app.ml_prediction).length || 1)
   };
 
+  // Rest of the component remains the same (JSX)
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-green-50 p-3 sm:p-6">
       <div className="max-w-7xl mx-auto">

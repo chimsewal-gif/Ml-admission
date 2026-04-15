@@ -1,13 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Cookies from 'js-cookie';
 import { useRouter } from 'next/navigation';
 import { Building2, Receipt, ArrowRight, CheckCircle } from 'lucide-react';
 import ProgressIndicator from '@/componets/ProgressIndicator';
 import Button2 from '@/componets/Button2';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000/api';
 
 export default function ApplicationFeesPage() {
   const [depositSlip, setDepositSlip] = useState<File | null>(null);
@@ -18,35 +17,46 @@ export default function ApplicationFeesPage() {
   const [userLoading, setUserLoading] = useState(true);
 
   const router = useRouter();
-  const token = Cookies.get('token');
 
   const bankName = 'National Bank of Malawi';
   const accountNumber = '000123456789';
   const accountName = 'University of Malawi - Applications';
   const applicationAmount = 'MK 10,000';
 
+  // Helper to get token from localStorage
+  const getToken = () => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('token');
+    }
+    return null;
+  };
+
   // ✅ Fetch authenticated user on mount
   useEffect(() => {
+    const token = getToken();
     if (!token) {
       router.push('/login');
       return;
     }
-    fetchUser();
-  }, [token, router]);
+    fetchUser(token);
+  }, [router]);
 
-  const fetchUser = async () => {
+  const fetchUser = async (token: string) => {
     try {
       setUserLoading(true);
-      const res = await fetch(`${API_URL}/user`, {
+      const res = await fetch(`${API_BASE_URL}/me/`, {
+        method: 'GET',
         headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
         },
       });
 
       if (!res.ok) {
         if (res.status === 401) {
-          Cookies.remove('token');
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
           router.push('/login');
           return;
         }
@@ -55,9 +65,9 @@ export default function ApplicationFeesPage() {
 
       const data = await res.json();
       
-      // ✅ CORRECTED: Access user ID from the nested user object
-      if (data.user && data.user.id) {
-        setUserId(data.user.id);
+      // ✅ Get user ID directly from response
+      if (data && data.id) {
+        setUserId(data.id);
       } else {
         throw new Error('User ID not found in response');
       }
@@ -85,6 +95,8 @@ export default function ApplicationFeesPage() {
     e.preventDefault();
     setError(null);
     setSuccess(null);
+
+    const token = getToken();
 
     if (!token) {
       setError('User not authenticated. Please log in again.');
@@ -117,17 +129,15 @@ export default function ApplicationFeesPage() {
 
     const formData = new FormData();
     formData.append('deposit_slip', depositSlip);
-    // You might also need to send user_id if your backend expects it
     formData.append('user_id', userId.toString());
 
     try {
       setLoading(true);
 
-      const res = await fetch(`${API_URL}/application-fees`, {
+      const res = await fetch(`${API_BASE_URL}/application-fees/`, {
         method: 'POST',
         headers: { 
-          Authorization: `Bearer ${token}`,
-          // Don't set Content-Type for FormData - let browser set it with boundary
+          'Authorization': `Bearer ${token}`,
         },
         body: formData,
       });
@@ -149,6 +159,10 @@ export default function ApplicationFeesPage() {
       setSuccess('Deposit slip submitted successfully! Your application is being processed.');
       setDepositSlip(null);
 
+      // ✅ Clear file input
+      const fileInput = document.getElementById('depositSlip') as HTMLInputElement;
+      if (fileInput) fileInput.value = '';
+
       // ✅ Redirect after short delay
       setTimeout(() => {
         router.push('/application/submit');
@@ -159,7 +173,8 @@ export default function ApplicationFeesPage() {
       // Handle specific error cases
       if (err.message.includes('401') || err.message.includes('unauthorized')) {
         setError('Session expired. Please log in again.');
-        Cookies.remove('token');
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
         setTimeout(() => {
           router.push('/login');
         }, 2000);
@@ -298,9 +313,10 @@ export default function ApplicationFeesPage() {
                         <input
                           type="file"
                           id="depositSlip"
+                          name="depositSlip"
                           accept=".jpg,.jpeg,.png,.pdf"
                           onChange={handleFileChange}
-                          required
+                          required={!depositSlip}
                           className="hidden"
                         />
                         <label
