@@ -13,23 +13,32 @@ import {
 } from 'lucide-react';
 import Button from '@/componets/Button';
 
-const API_BASE_URL = 'http://127.0.0.1:8000/api';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000/api';
 
 const Header2 = () => {
   const [user, setUser] = useState<{ 
+    id?: number;
     first_name: string; 
     last_name: string; 
     email: string;
     username: string;
+    role?: string;
   } | null>(null);
   const [showMenu, setShowMenu] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [greeting, setGreeting] = useState('');
   const [currentTime, setCurrentTime] = useState('');
   const [isLoading, setIsLoading] = useState(true);
-  const [hasCheckedSession, setHasCheckedSession] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
+
+  // Helper to get token from localStorage
+  const getToken = () => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('token');
+    }
+    return null;
+  };
 
   useEffect(() => {
     // Load user data on component mount
@@ -59,17 +68,19 @@ const Header2 = () => {
     try {
       setIsLoading(true);
       
-      // FIRST: Try to get from localStorage (fastest - login page saves here)
+      // Try to get from localStorage (fastest)
       const localUser = localStorage.getItem('user');
-      if (localUser) {
+      const token = getToken();
+      
+      if (localUser && token) {
         try {
           const parsed = JSON.parse(localUser);
           console.log('Loaded user from localStorage:', parsed);
           setUser(parsed);
           setIsLoading(false);
           
-          // Verify with Django session in background WITHOUT overwriting state
-          checkDjangoSessionInBackground();
+          // Verify token in background
+          verifyTokenInBackground(token);
           return;
         } catch (err) {
           console.error('Invalid user data in localStorage:', err);
@@ -77,8 +88,15 @@ const Header2 = () => {
         }
       }
       
-      // SECOND: If no localStorage data, check Django session
-      await checkDjangoSession();
+      // If no token, user is not logged in
+      if (!token) {
+        setUser(null);
+        setIsLoading(false);
+        return;
+      }
+      
+      // Verify token with backend
+      await verifyToken(token);
       
     } catch (error) {
       console.error('Error loading user data:', error);
@@ -86,124 +104,67 @@ const Header2 = () => {
     }
   };
 
-  const checkDjangoSessionInBackground = async () => {
+  const verifyTokenInBackground = async (token: string) => {
     try {
-      // Get CSRF token first
-      const csrfResponse = await fetch(`${API_BASE_URL}/csrf/`, {
-        credentials: 'include',
-      });
-      
-      if (!csrfResponse.ok) {
-        console.log('No CSRF token - session might not be active');
-        setHasCheckedSession(true);
-        return;
-      }
-
-      const csrfData = await csrfResponse.json();
-
-      // Check Django session
-      const response = await fetch(`${API_BASE_URL}/me/`, {
+      const response = await fetch(`${API_BASE_URL}/verify-token/`, {
         method: 'GET',
-        credentials: 'include',
         headers: {
+          'Authorization': `Bearer ${token}`,
           'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'X-CSRFToken': csrfData.csrfToken,
         },
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Django session response:', data);
-        
-        if (data.is_authenticated && data.user) {
-          const userData = {
-            first_name: data.user.first_name || '',
-            last_name: data.user.last_name || '',
-            email: data.user.email || '',
-            username: data.user.username || ''
-          };
-          
-          // Only update if data is different from localStorage
-          const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
-          if (JSON.stringify(userData) !== JSON.stringify(currentUser)) {
-            setUser(userData);
-            localStorage.setItem('user', JSON.stringify(userData));
-          }
-        } else {
-          // User not authenticated in Django, clear data
-          setUser(null);
-          localStorage.removeItem('user');
-        }
-      } else {
-        // Session check failed - keep localStorage data
-        console.log('Session check failed, status:', response.status);
+      if (!response.ok) {
+        console.log('Token verification failed in background');
+        // Don't clear user immediately, let the main verification handle it
       }
     } catch (error) {
-      console.error('Error checking Django session:', error);
-      // Keep localStorage data on error
-    } finally {
-      setHasCheckedSession(true);
+      console.error('Error verifying token in background:', error);
     }
   };
 
-  const checkDjangoSession = async () => {
+  const verifyToken = async (token: string) => {
     try {
-      // Get CSRF token first
-      const csrfResponse = await fetch(`${API_BASE_URL}/csrf/`, {
-        credentials: 'include',
-      });
-      
-      if (!csrfResponse.ok) {
-        console.log('No CSRF token - session might not be active');
-        setIsLoading(false);
-        setHasCheckedSession(true);
-        return;
-      }
-
-      const csrfData = await csrfResponse.json();
-
-      // Check Django session
-      const response = await fetch(`${API_BASE_URL}/me/`, {
+      const response = await fetch(`${API_BASE_URL}/verify-token/`, {
         method: 'GET',
-        credentials: 'include',
         headers: {
+          'Authorization': `Bearer ${token}`,
           'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'X-CSRFToken': csrfData.csrfToken,
         },
       });
 
       if (response.ok) {
         const data = await response.json();
-        console.log('Django session response:', data);
-        
-        if (data.is_authenticated && data.user) {
+        if (data.valid && data.user) {
           const userData = {
+            id: data.user.id,
             first_name: data.user.first_name || '',
             last_name: data.user.last_name || '',
             email: data.user.email || '',
-            username: data.user.username || ''
+            username: data.user.username || '',
+            role: data.user.role || 'user'
           };
-          
           setUser(userData);
           localStorage.setItem('user', JSON.stringify(userData));
         } else {
-          // User not authenticated, clear data
-          setUser(null);
+          // Token invalid
+          console.log('Token invalid');
+          localStorage.removeItem('token');
           localStorage.removeItem('user');
+          setUser(null);
         }
-      } else {
-        // Session check failed
-        console.log('Session check failed, status:', response.status);
+      } else if (response.status === 401) {
+        // Token expired or invalid
+        console.log('Token expired or invalid');
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
         setUser(null);
       }
     } catch (error) {
-      console.error('Error checking Django session:', error);
+      console.error('Error verifying token:', error);
       setUser(null);
     } finally {
       setIsLoading(false);
-      setHasCheckedSession(true);
     }
   };
 
@@ -239,12 +200,8 @@ const Header2 = () => {
       setCurrentTime(timeString);
     };
 
-    // Update immediately
     updateTimeAndGreeting();
-
-    // Update every minute
     const interval = setInterval(updateTimeAndGreeting, 60000);
-
     return () => clearInterval(interval);
   }, []);
 
@@ -286,23 +243,17 @@ const Header2 = () => {
   };
 
   const handleLogout = async () => {
+    const token = getToken();
+    
     try {
-      // Get CSRF token for logout
-      const csrfResponse = await fetch(`${API_BASE_URL}/csrf/`, {
-        credentials: 'include',
-      });
-      
-      if (csrfResponse.ok) {
-        const csrfData = await csrfResponse.json();
-        
-        // Call Django logout endpoint
+      if (token) {
+        // Call logout endpoint
         await fetch(`${API_BASE_URL}/logout/`, {
           method: 'POST',
-          credentials: 'include',
           headers: {
+            'Authorization': `Bearer ${token}`,
             'Accept': 'application/json',
             'Content-Type': 'application/json',
-            'X-CSRFToken': csrfData.csrfToken,
           },
         });
       }
@@ -311,6 +262,7 @@ const Header2 = () => {
     } finally {
       // Clear all user data
       setUser(null);
+      localStorage.removeItem('token');
       localStorage.removeItem('user');
       localStorage.removeItem('applicationType');
       
@@ -320,7 +272,7 @@ const Header2 = () => {
   };
 
   // Show loading state only briefly when first loading
-  if (isLoading && !hasCheckedSession) {
+  if (isLoading) {
     return (
       <>
         <header className="fixed top-0 left-0 right-0 z-50 bg-white py-4 shadow-md">

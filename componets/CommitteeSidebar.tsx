@@ -1,3 +1,4 @@
+// components/CommitteeSidebar.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -5,29 +6,31 @@ import Link from 'next/link';
 import Image from 'next/image';
 import {
   Home,
+  Users,
   FileText,
-  Banknote,
-  GraduationCap,
-  User,
+  Star,
+  BarChart3,
+  Settings,
   Menu,
   X,
-  Calendar,
+  UserCheck,
 } from 'lucide-react';
 
-const studentNavItems = [
-  { label: 'Dashboard', href: '/application/dashboard', icon: Home },
-  { label: 'Profile', href: '/application/profile', icon: User },
-  { label: 'Next of Kin', href: '/application/next-of-kin', icon: GraduationCap },
-  { label: 'Qualifications', href: '/application/High-school-records', icon: Calendar },
-  { label: 'Fees', href: '/application/application-fees', icon: Banknote },
-  { label: 'My Application', href: '/application/submit', icon: FileText },
+const committeeNavItems = [
+  { label: 'Dashboard', href: '/commitee', icon: Home },
+
+
+  { label: 'Applications', href: '/commitee/applications', icon: FileText },
+  { label: 'Evaluations', href: '/commitee/evaluations', icon: Star },
+  { label: 'Reports', href: '/commitee/reports', icon: BarChart3 },
+  { label: 'Committee Members', href: '/commitee', icon: UserCheck },
+  { label: 'Settings', href: '/commitee/settings', icon: Settings },
 ];
 
-export default function StudentSidebar() {
+export default function CommitteeSidebar() {
   const [isOpen, setIsOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
 
-  // Prevent body scroll when sidebar is open on mobile
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
@@ -36,7 +39,6 @@ export default function StudentSidebar() {
     }
   }, [isOpen]);
 
-  // Collapse on hover, expand on leave
   const handleMouseEnter = () => {
     setIsCollapsed(true);
   };
@@ -45,7 +47,6 @@ export default function StudentSidebar() {
     setIsCollapsed(false);
   };
 
-  // Default is expanded (w-64), collapses to w-20 on hover
   const isExpanded = !isCollapsed;
 
   return (
@@ -83,28 +84,28 @@ export default function StudentSidebar() {
           />
         </div>
 
-        {/* Full Title - visible when expanded */}
+        {/* Full Title */}
         <div className={`
           text-center mb-4 transition-all duration-300 overflow-hidden
           ${isExpanded ? 'opacity-100 max-h-24' : 'opacity-0 max-h-0'}
         `}>
-          <h1 className="font-extrabold text-green-950 text-sm whitespace-nowrap">Mzuni Student Portal</h1>
-          <p className="text-gray-500 text-xs whitespace-nowrap">Admission System</p>
+          <h1 className="font-extrabold text-green-950 text-sm whitespace-nowrap">Committee Portal</h1>
+          <p className="text-gray-500 text-xs whitespace-nowrap">Selection Committee</p>
         </div>
 
-        {/* Collapsed Title - visible when collapsed */}
+        {/* Collapsed Title */}
         <div className={`
           text-center mb-4 transition-all duration-300 overflow-hidden
           ${!isExpanded ? 'opacity-100 max-h-12' : 'opacity-0 max-h-0'}
         `}>
-          <h1 className="font-extrabold text-green-950 text-xs whitespace-nowrap">Mzuni</h1>
+          <h1 className="font-extrabold text-green-950 text-xs whitespace-nowrap">Committee</h1>
         </div>
 
         <hr className="mb-3 mx-2" />
 
         {/* Navigation */}
         <nav className="space-y-2 px-2">
-          {studentNavItems.map(({ label, href, icon: Icon }) => (
+          {committeeNavItems.map(({ label, href, icon: Icon }) => (
             <Link
               key={`${href}-${label}`}
               href={href}
@@ -120,7 +121,6 @@ export default function StudentSidebar() {
                 w-6 h-6 text-gray-700 transition-all duration-300
                 ${!isExpanded ? 'group-hover:scale-110' : ''}
               `} />
-              {/* Label - fade out when collapsing */}
               <span className={`
                 text-base font-bold transition-all duration-300 whitespace-nowrap
                 ${isExpanded ? 'opacity-100 inline-block' : 'opacity-0 hidden w-0'}
@@ -132,7 +132,7 @@ export default function StudentSidebar() {
         </nav>
       </aside>
 
-      {/* Overlay for mobile when sidebar is open */}
+      {/* Overlay for mobile */}
       {isOpen && (
         <div
           className="fixed inset-0 bg-black/50 z-40 md:hidden"

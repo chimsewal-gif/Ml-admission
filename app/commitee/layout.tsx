@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import StudentSidebar from '@/componets/Studentsidebar';
+import CommitteeSidebar from '@/componets/CommitteeSidebar';
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+export default function CommitteeLayout({ children }: { children: React.ReactNode }) {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   // Listen for sidebar collapse state changes
@@ -32,12 +32,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex min-h-screen">
-      <StudentSidebar />
+      <CommitteeSidebar />
       <main 
         className={`
           flex-1 p-6 bg-gray-50 min-h-screen overflow-x-auto
           transition-all duration-300 ease-in-out
-          ${isSidebarCollapsed ? 'ml-20' : 'ml-64'}
+          ${isSidebarCollapsed ? 'md:ml-20' : 'md:ml-64'}
         `}
       >
         {children}
