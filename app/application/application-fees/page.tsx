@@ -1,541 +1,468 @@
+// app/application-fees/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Building2, Receipt, ArrowRight, CheckCircle, AlertCircle, Eye, Download, RefreshCw } from 'lucide-react';
-import ProgressIndicator from '@/componets/ProgressIndicator';
-import Button2 from '@/componets/Button2';
+import { 
+  CreditCard, 
+  Upload, 
+  CheckCircle, 
+  AlertCircle, 
+  ArrowRight, 
+  ChevronLeft,
+  FileText,
+  Loader2,
+  Banknote,
+  Receipt,
+  Download
+} from 'lucide-react';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000/api';
-
-interface PaymentData {
-  status: string;
-  file_path?: string;
-  file_name?: string;
-  uploaded_at?: string;
-  amount?: number;
-  submitted_date?: string;
-}
+const API_BASE_URL = 'http://127.0.0.1:8000/api';
 
 export default function ApplicationFeesPage() {
-  const [depositSlip, setDepositSlip] = useState<File | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [fetchingStatus, setFetchingStatus] = useState(true);
+  const router = useRouter();
+  const [token, setToken] = useState<string | null>(null);
+  const [applicantId, setApplicantId] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [userId, setUserId] = useState<number | null>(null);
-  const [userLoading, setUserLoading] = useState(true);
-  const [paymentData, setPaymentData] = useState<PaymentData | null>(null);
+  
+  // Form state
+  const [depositReference, setDepositReference] = useState('');
+  const [amountPaid, setAmountPaid] = useState('');
+  const [depositSlip, setDepositSlip] = useState<File | null>(null);
+  const [submissionStatus, setSubmissionStatus] = useState<'pending' | 'submitted' | 'verified' | 'rejected' | null>(null);
+  const [existingFile, setExistingFile] = useState<string | null>(null);
+  
+  // Fee amounts based on program type
+  const [programType, setProgramType] = useState<string>('undergraduate');
+  const [feeAmount, setFeeAmount] = useState<number>(25000);
 
-  const router = useRouter();
-
-  const bankName = 'National Bank of Malawi';
-  const accountNumber = '000123456789';
-  const accountName = 'University of Malawi - Applications';
-  const applicationAmount = 'MK 25,000';
-
-  // Helper to get token from localStorage
-  const getToken = () => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('token');
-    }
-    return null;
-  };
-
-  // Fetch payment status
-  const fetchPaymentStatus = async (token: string, userId: number) => {
-    try {
-      setFetchingStatus(true);
-      const res = await fetch(`${API_BASE_URL}/application-fees/`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'application/json',
-        },
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success && data.data) {
-          setPaymentData(data.data);
-          console.log('Payment data:', data.data);
-        }
-      } else if (res.status !== 404) {
-        console.log('No payment found or error fetching');
-      }
-    } catch (err) {
-      console.error('Error fetching payment status:', err);
-    } finally {
-      setFetchingStatus(false);
-    }
-  };
-
-  // Fetch authenticated user on mount
+  // Get token from localStorage
   useEffect(() => {
-    const token = getToken();
-    if (!token) {
+    const storedToken = localStorage.getItem('token');
+    if (!storedToken) {
       router.push('/login');
       return;
     }
-    fetchUser(token);
+    setToken(storedToken);
+    fetchCurrentUser(storedToken);
   }, [router]);
 
-  const fetchUser = async (token: string) => {
+  // Fetch current user and check existing submission
+  const fetchCurrentUser = async (authToken: string) => {
     try {
-      setUserLoading(true);
       const res = await fetch(`${API_BASE_URL}/me/`, {
         method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'application/json',
+        headers: { 
+          'Authorization': `Bearer ${authToken}`,
           'Content-Type': 'application/json',
         },
       });
-
-      if (!res.ok) {
-        if (res.status === 401) {
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
-          router.push('/login');
-          return;
+      
+      if (res.ok) {
+        const userData = await res.json();
+        const userId = userData.id;
+        setApplicantId(userId);
+        
+        // Check user's program type to determine fee amount
+        const role = userData.role || 'guest';
+        if (role === 'postgraduate' || role === 'masters') {
+          setProgramType('postgraduate');
+          setFeeAmount(40000);
+        } else {
+          setProgramType('undergraduate');
+          setFeeAmount(25000);
         }
-        throw new Error(`HTTP error! status: ${res.status}`);
-      }
-
-      const data = await res.json();
-      
-      if (data && data.id) {
-        setUserId(data.id);
-        // Fetch payment status after getting user ID
-        await fetchPaymentStatus(token, data.id);
+        
+        await checkExistingSubmission(authToken, userId);
       } else {
-        throw new Error('User ID not found in response');
+        throw new Error('Failed to fetch user data');
       }
-    } catch (err: any) {
-      console.error('User fetch error:', err);
-      setError('Failed to fetch authenticated user. Please log in again.');
-      setTimeout(() => {
-        router.push('/login');
-      }, 2000);
-    } finally {
-      setUserLoading(false);
+    } catch (err) {
+      console.error('Error fetching current user:', err);
+      setError('Failed to load user information');
+      setLoading(false);
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0] || null;
-    setDepositSlip(file);
-    setError(null);
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setSuccess(null);
-
-    const token = getToken();
-
-    if (!token) {
-      setError('User not authenticated. Please log in again.');
-      router.push('/login');
-      return;
-    }
-
-    if (!userId) {
-      setError('User information not loaded. Please try again.');
-      return;
-    }
-
-    if (!depositSlip) {
-      setError('Please upload your deposit slip.');
-      return;
-    }
-
-    // Validate file type
-    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'];
-    if (!allowedTypes.includes(depositSlip.type)) {
-      setError('Please upload a valid file (JPG, PNG, or PDF).');
-      return;
-    }
-
-    // Validate file size (5MB max)
-    if (depositSlip.size > 5 * 1024 * 1024) {
-      setError('File size must be less than 5MB.');
-      return;
-    }
-
-    const formData = new FormData();
-    formData.append('deposit_slip', depositSlip);
-
+  // Check if user has already submitted fees
+  const checkExistingSubmission = async (authToken: string, userId: number) => {
     try {
-      setLoading(true);
-
-      const res = await fetch(`${API_BASE_URL}/application-fees/`, {
-        method: 'POST',
-        headers: { 
-          'Authorization': `Bearer ${token}`,
+      const response = await fetch(`${API_BASE_URL}/application-fees/`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
         },
-        body: formData,
       });
-
-      let data;
-      const contentType = res.headers.get('content-type');
-
-      if (contentType && contentType.includes('application/json')) {
-        data = await res.json();
-      } else {
-        const text = await res.text();
-        throw new Error(text || 'Unexpected response from server');
-      }
-
-      if (!res.ok) {
-        throw new Error(data.message || data.error || `Request failed with status ${res.status}`);
-      }
-
-      setSuccess('Deposit slip submitted successfully! Your application is being processed.');
-      setDepositSlip(null);
       
-      // Refresh payment status
-      await fetchPaymentStatus(token, userId);
-      
-      // Clear file input
-      const fileInput = document.getElementById('depositSlip') as HTMLInputElement;
-      if (fileInput) fileInput.value = '';
-
-      // Redirect after short delay if not pending
-      if (paymentData?.status !== 'pending') {
-        setTimeout(() => {
-          router.push('/application/submit');
-        }, 3000);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.data && data.data.status === 'pending') {
+          setSubmissionStatus('pending');
+          if (data.data.file_path) {
+            setExistingFile(data.data.file_path);
+          }
+        } else if (data.data && (data.data.status === 'verified' || data.data.status === 'approved')) {
+          setSubmissionStatus('verified');
+        }
       }
-    } catch (err: any) {
-      console.error('Submit error:', err);
-      
-      if (err.message.includes('401') || err.message.includes('unauthorized')) {
-        setError('Session expired. Please log in again.');
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        setTimeout(() => {
-          router.push('/login');
-        }, 2000);
-      } else {
-        setError(err.message || 'Error uploading deposit slip. Please try again.');
-      }
+    } catch (err) {
+      console.error('Error checking existing submission:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleViewSlip = () => {
-    if (paymentData?.file_path) {
-      const url = `${API_BASE_URL.replace('/api', '')}${paymentData.file_path}`;
-      window.open(url, '_blank');
+  // Handle file selection
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      
+      // Validate file type
+      if (file.type !== 'application/pdf') {
+        setError('Only PDF files are allowed');
+        e.target.value = '';
+        return;
+      }
+      
+      // Validate file size (2MB)
+      if (file.size > 2 * 1024 * 1024) {
+        setError('File size must be less than 2MB');
+        e.target.value = '';
+        return;
+      }
+      
+      setDepositSlip(file);
+      setError(null);
     }
   };
 
-  const handleDownloadSlip = () => {
-    if (paymentData?.file_path) {
-      const url = `${API_BASE_URL.replace('/api', '')}${paymentData.file_path}`;
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = paymentData.file_name || 'deposit_slip';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+  // Handle form submission
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Validate form
+    if (!depositReference.trim()) {
+      setError('Deposit reference number is required');
+      return;
+    }
+    
+    if (!amountPaid) {
+      setError('Amount paid is required');
+      return;
+    }
+    
+    const amount = parseFloat(amountPaid);
+    if (isNaN(amount) || amount < feeAmount) {
+      setError(`Amount must be at least MWK ${feeAmount.toLocaleString()}`);
+      return;
+    }
+    
+    if (!depositSlip) {
+      setError('Please upload your bank deposit slip');
+      return;
+    }
+    
+    setSubmitting(true);
+    setError(null);
+    
+    try {
+      const formData = new FormData();
+      formData.append('deposit_slip', depositSlip);
+      formData.append('reference_number', depositReference);
+      formData.append('amount', amountPaid);
+      
+      const response = await fetch(`${API_BASE_URL}/application-fees/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        body: formData,
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok && data.success) {
+        setSuccess('Application fee submitted successfully! Your payment is being verified.');
+        setSubmissionStatus('pending');
+        setDepositReference('');
+        setAmountPaid('');
+        setDepositSlip(null);
+        // Reset file input
+        const fileInput = document.getElementById('deposit-slip') as HTMLInputElement;
+        if (fileInput) fileInput.value = '';
+      } else {
+        setError(data.message || 'Failed to submit application fee');
+      }
+    } catch (err) {
+      console.error('Error submitting fee:', err);
+      setError('Network error. Please try again.');
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status?.toLowerCase()) {
-      case 'pending':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      case 'verified':
-        return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'approved':
-        return 'bg-green-100 text-green-800 border-green-200';
-      case 'rejected':
-        return 'bg-red-100 text-red-800 border-red-200';
-      default:
-        return 'bg-gray-100 text-gray-800 border-gray-200';
+  // Handle back navigation
+  const handleBack = () => {
+    router.push('/application/documents');
+  };
+
+  // Handle continue
+  const handleContinue = () => {
+    if (submissionStatus === 'verified' || submissionStatus === 'submitted') {
+      router.push('/application/referees');
+    } else {
+      setError('Please submit your application fee before continuing');
     }
   };
 
-  const getStatusMessage = (status: string) => {
-    switch (status?.toLowerCase()) {
-      case 'pending':
-        return 'Your payment is pending review. We will notify you once verified.';
-      case 'verified':
-        return 'Your payment has been verified. You can now submit your application.';
-      case 'approved':
-        return 'Your payment has been approved!';
-      case 'rejected':
-        return 'Your payment was rejected. Please upload a valid deposit slip.';
-      default:
-        return 'Please upload your deposit slip to complete your application.';
-    }
-  };
-
-  const formatDate = (dateString: string) => {
-    if (!dateString) return '';
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
-
-  // Show loading state while fetching user
-  if (userLoading || fetchingStatus) {
+  if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading payment information...</p>
+          <p className="text-gray-600">Loading application fee information...</p>
         </div>
       </div>
     );
   }
 
-  // Check if payment is already submitted and approved/verified
-  const isPaymentComplete = paymentData && (paymentData.status === 'verified' || paymentData.status === 'approved');
-  const hasExistingPayment = paymentData && paymentData.status !== 'pending' && paymentData.file_path;
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-8">
+    <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-4xl mx-auto px-4">
-        <ProgressIndicator currentStep={10} />
-
-        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden mt-6">
-          <div className="bg-gradient-to-r from-green-600 to-emerald-600 px-8 py-6">
-            <div className="flex items-center space-x-4">
-              <div className="p-3 bg-white/20 rounded-xl">
-                <Receipt className="w-8 h-8 text-white" />
-              </div>
-              <div>
-                <h1 className="text-3xl font-bold text-white mb-2">
-                  Application Fee Payment
-                </h1>
-                <p className="text-green-100 text-lg">
-                  {isPaymentComplete ? 'Payment Completed' : 'Complete your application payment'}
-                </p>
-              </div>
+        <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
+          {/* Header */}
+          <div className="border-b border-gray-200 p-6">
+            <div className="flex items-center gap-3 mb-2">
+              <Banknote className="w-6 h-6 text-gray-700" />
+              <h2 className="text-xl font-semibold text-gray-800">APPLICATION FEE</h2>
+            </div>
+            <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-r-lg mt-3">
+              <p className="text-sm text-gray-700">
+                All applicants are required to pay a non-refundable application fee. 
+                <span className="font-semibold"> Undergraduate applicants must pay MWK 25,000</span>, while 
+                <span className="font-semibold"> postgraduate applicants must pay MWK 40,000</span>. 
+                Ensure the amount paid is correct and that your deposit reference number matches your payment proof.
+              </p>
             </div>
           </div>
 
-          <div className="p-8">
-            {/* Error Message */}
+          <div className="p-6">
+            {/* Alerts */}
             {error && (
-              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-center">
-                <AlertCircle className="w-5 h-5 text-red-500 mr-3 flex-shrink-0" />
-                <p className="text-red-700 text-sm">{error}</p>
+              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-red-700">{error}</p>
               </div>
             )}
-
-            {/* Success Message */}
+            
             {success && (
-              <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-xl flex items-center">
-                <CheckCircle className="w-5 h-5 text-green-500 mr-3 flex-shrink-0" />
-                <p className="text-green-700 text-sm">{success}</p>
+              <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-start gap-3">
+                <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-green-700">{success}</p>
               </div>
             )}
 
-            {/* Existing Payment Status */}
-            {hasExistingPayment && (
-              <div className="mb-6 p-4 rounded-xl border" style={{ backgroundColor: `${getStatusColor(paymentData.status).split(' ')[0]}` }}>
-                <div className="flex items-start justify-between">
-                  <div className="flex items-start space-x-3">
-                    {paymentData.status === 'verified' && <CheckCircle className="w-5 h-5 text-green-500 mt-0.5" />}
-                    {paymentData.status === 'pending' && <AlertCircle className="w-5 h-5 text-yellow-500 mt-0.5" />}
-                    {paymentData.status === 'rejected' && <AlertCircle className="w-5 h-5 text-red-500 mt-0.5" />}
-                    <div>
-                      <h3 className="font-semibold text-gray-900">Payment Status: {paymentData.status?.toUpperCase()}</h3>
-                      <p className="text-sm text-gray-600 mt-1">{getStatusMessage(paymentData.status)}</p>
-                      {paymentData.uploaded_at && (
-                        <p className="text-xs text-gray-500 mt-2">Submitted on: {formatDate(paymentData.uploaded_at)}</p>
+            {/* Fee Summary Card */}
+            <div className="mb-6 bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-5">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <p className="text-sm text-gray-600 mb-1">Application Type</p>
+                  <p className="text-lg font-semibold text-gray-800 capitalize">
+                    {programType === 'postgraduate' ? 'Postgraduate Program' : 'Undergraduate Program'}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm text-gray-600 mb-1">Application Fee (Non-refundable)</p>
+                  <p className="text-2xl font-bold text-green-700">MWK {feeAmount.toLocaleString()}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Submission Status */}
+            {submissionStatus === 'pending' && (
+              <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg flex items-start gap-3">
+                <Loader2 className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5 animate-spin" />
+                <div>
+                  <p className="text-sm font-medium text-blue-800">Payment Under Review</p>
+                  <p className="text-sm text-blue-700 mt-1">
+                    Your application fee payment is being verified. You will be notified once approved.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {submissionStatus === 'verified' && (
+              <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-start gap-3">
+                <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-green-800">Payment Verified</p>
+                  <p className="text-sm text-green-700 mt-1">
+                    Your application fee has been verified. You can proceed with your application.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Payment Form - Only show if not already submitted/verified */}
+            {submissionStatus !== 'verified' && (
+              <form onSubmit={handleSubmit} className="space-y-6">
+                {/* Deposit Reference Number */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Deposit Reference Number <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <Receipt className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                    <input
+                      type="text"
+                      value={depositReference}
+                      onChange={(e) => setDepositReference(e.target.value)}
+                      placeholder="Enter deposit reference number..."
+                      className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Enter the reference number from your bank deposit slip
+                  </p>
+                </div>
+
+                {/* Amount Paid */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Amount Paid <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-medium">MWK</span>
+                    <input
+                      type="number"
+                      value={amountPaid}
+                      onChange={(e) => setAmountPaid(e.target.value)}
+                      placeholder="Enter amount paid..."
+                      className="w-full pl-16 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Minimum amount: MWK {feeAmount.toLocaleString()}
+                  </p>
+                </div>
+
+                {/* Upload Bank Deposit Slip */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Upload Bank Deposit Slip <span className="text-red-500">*</span>
+                  </label>
+                  <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg hover:border-green-400 transition-colors">
+                    <div className="space-y-2 text-center">
+                      <Upload className="mx-auto h-10 w-10 text-gray-400" />
+                      <div className="flex text-sm text-gray-600">
+                        <label
+                          htmlFor="deposit-slip"
+                          className="relative cursor-pointer rounded-md font-medium text-green-600 hover:text-green-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-green-500"
+                        >
+                          <span>Upload a file</span>
+                          <input
+                            id="deposit-slip"
+                            name="deposit-slip"
+                            type="file"
+                            accept=".pdf"
+                            onChange={handleFileChange}
+                            className="sr-only"
+                          />
+                        </label>
+                        <p className="pl-1">or drag and drop</p>
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        PDF files only, max size 2MB
+                      </p>
+                      {depositSlip && (
+                        <div className="mt-3 p-2 bg-green-50 rounded-lg flex items-center justify-center gap-2">
+                          <FileText className="w-4 h-4 text-green-600" />
+                          <span className="text-sm text-green-700">{depositSlip.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDepositSlip(null);
+                              const input = document.getElementById('deposit-slip') as HTMLInputElement;
+                              if (input) input.value = '';
+                            }}
+                            className="text-red-500 hover:text-red-700 text-xs"
+                          >
+                            Remove
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>
-                  {paymentData.file_path && (
-                    <div className="flex space-x-2">
-                      <button
-                        onClick={handleViewSlip}
-                        className="flex items-center space-x-1 px-3 py-1 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
-                      >
-                        <Eye className="w-3 h-3" />
-                        <span>View</span>
-                      </button>
-                      <button
-                        onClick={handleDownloadSlip}
-                        className="flex items-center space-x-1 px-3 py-1 bg-gray-600 text-white rounded-lg text-sm hover:bg-gray-700"
-                      >
-                        <Download className="w-3 h-3" />
-                        <span>Download</span>
-                      </button>
-                    </div>
-                  )}
                 </div>
-              </div>
+
+                {/* Bank Account Details */}
+                <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                  <h3 className="font-medium text-gray-800 mb-3 flex items-center gap-2">
+                    <CreditCard className="w-4 h-4" />
+                    Bank Account Details
+                  </h3>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between py-1">
+                      <span className="text-gray-600">Bank Name:</span>
+                      <span className="font-medium text-gray-800">National Bank of Malawi</span>
+                    </div>
+                    <div className="flex justify-between py-1">
+                      <span className="text-gray-600">Account Name:</span>
+                      <span className="font-medium text-gray-800">MZUNI Admissions</span>
+                    </div>
+                    <div className="flex justify-between py-1">
+                      <span className="text-gray-600">Account Number:</span>
+                      <span className="font-medium text-gray-800">1001234567890</span>
+                    </div>
+                    <div className="flex justify-between py-1">
+                      <span className="text-gray-600">Branch:</span>
+                      <span className="font-medium text-gray-800">City Centre, Lilongwe</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Submit Button */}
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="w-full py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {submitting ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Submitting...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-5 h-5" />
+                      Submit Application Fee
+                    </>
+                  )}
+                </button>
+              </form>
             )}
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Payment Instructions */}
-              <div>
-                <div className="bg-green-50 border border-green-200 rounded-xl p-6 mb-6">
-                  <h3 className="font-semibold text-green-800 mb-4 flex items-center text-lg">
-                    <Building2 className="mr-2" size={24} />
-                    Payment Instructions
-                  </h3>
-                  
-                  <div className="space-y-4">
-                    <div className="p-4 bg-white rounded-lg border border-green-100">
-                      <div className="grid grid-cols-1 gap-3 text-sm">
-                        <div className="flex justify-between">
-                          <span className="text-gray-600 font-medium">Bank:</span>
-                          <span className="text-green-800 font-semibold">{bankName}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-600 font-medium">Account Number:</span>
-                          <span className="text-green-800 font-semibold">{accountNumber}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-600 font-medium">Account Name:</span>
-                          <span className="text-green-800 font-semibold">{accountName}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-600 font-medium">Amount:</span>
-                          <span className="text-green-800 font-semibold text-lg">{applicationAmount}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                      <h4 className="font-semibold text-blue-800 mb-2">Important Notes:</h4>
-                      <ul className="text-sm text-blue-700 space-y-1">
-                        <li>• Payment must be made using the exact amount specified</li>
-                        <li>• Keep your bank receipt for reference</li>
-                        <li>• Processing may take up to 24 hours</li>
-                        <li>• Contact admissions@unima.mw if you encounter issues</li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Upload Form - Only show if payment is not already verified/approved */}
-              {!isPaymentComplete && (
-                <div>
-                  <div className="bg-white border border-gray-200 rounded-xl p-6">
-                    <h2 className="text-xl font-bold text-gray-800 mb-4">
-                      Upload Deposit Slip
-                    </h2>
-
-                    <form onSubmit={handleSubmit} className="space-y-6">
-                      <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-3">
-                          Select your deposit slip *
-                        </label>
-                        <div className="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center hover:border-green-400 transition-colors duration-200">
-                          <Receipt className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                          <p className="text-sm text-gray-600 mb-3">
-                            Drag and drop your file here or click to browse
-                          </p>
-                          <input
-                            type="file"
-                            id="depositSlip"
-                            name="depositSlip"
-                            accept=".jpg,.jpeg,.png,.pdf"
-                            onChange={handleFileChange}
-                            className="hidden"
-                          />
-                          <label
-                            htmlFor="depositSlip"
-                            className="inline-block bg-green-600 text-white px-6 py-2 rounded-lg cursor-pointer hover:bg-green-700 transition-colors duration-200"
-                          >
-                            Choose File
-                          </label>
-                          <p className="text-xs text-gray-500 mt-3">
-                            Supported formats: JPG, PNG, PDF (Max: 5MB)
-                          </p>
-                        </div>
-
-                        {depositSlip && (
-                          <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center">
-                                <CheckCircle className="w-4 h-4 text-green-600 mr-2" />
-                                <span className="text-sm text-green-800 font-medium">
-                                  {depositSlip.name}
-                                </span>
-                              </div>
-                              <span className="text-xs text-green-600">
-                                {(depositSlip.size / (1024 * 1024)).toFixed(2)} MB
-                              </span>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      <Button2
-                        type="submit"
-                        disabled={loading || !depositSlip}
-                        className="w-full py-3 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 disabled:opacity-50"
-                      >
-                        {loading ? (
-                          <div className="flex items-center justify-center">
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                            Uploading...
-                          </div>
-                        ) : (
-                          <div className="flex items-center justify-center">
-                            Submit Deposit Slip
-                            <ArrowRight className="w-4 h-4 ml-2" />
-                          </div>
-                        )}
-                      </Button2>
-                    </form>
-                  </div>
-                </div>
-              )}
-
-              {/* Payment Complete Message */}
-              {isPaymentComplete && (
-                <div className="bg-green-50 border border-green-200 rounded-xl p-6 text-center">
-                  <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
-                  <h3 className="text-xl font-bold text-gray-900 mb-2">Payment Verified!</h3>
-                  <p className="text-gray-600 mb-6">
-                    Your payment has been verified. You can now proceed to submit your application.
-                  </p>
-                  <Button2
-                    onClick={() => router.push('/application/submit')}
-                    className="w-full"
-                  >
-                    Continue to Submit Application
-                    <ArrowRight className="w-4 h-4 ml-2" />
-                  </Button2>
-                </div>
-              )}
-            </div>
-
             {/* Navigation Buttons */}
-            <div className="flex justify-between pt-6 mt-6 border-t border-gray-200">
-              <Button2
-                type="button"
-                onClick={() => router.push('/application/documents')}
-                variant="outline"
+            <div className={`mt-8 pt-6 border-t border-gray-200 flex justify-between ${submissionStatus === 'verified' ? '' : 'flex-row-reverse'}`}>
+              <button
+                onClick={handleBack}
+                className="px-6 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2 font-medium"
               >
+                <ChevronLeft className="w-4 h-4" />
                 Back
-              </Button2>
+              </button>
               
-              {!isPaymentComplete && paymentData?.status !== 'pending' && (
-                <Button2
-                  type="button"
-                  onClick={() => router.push('/application/submit')}
-                  variant="outline"
+              {submissionStatus === 'verified' && (
+                <button
+                  onClick={handleContinue}
+                  className="px-6 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 font-medium"
                 >
-                  Skip for Now
-                </Button2>
+                  Continue
+                  <ArrowRight className="w-4 h-4" />
+                </button>
               )}
             </div>
           </div>
