@@ -2,12 +2,14 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { FileText, ArrowRight, AlertCircle, CheckCircle, GraduationCap, BookOpen, Globe, Award } from 'lucide-react';
 
 interface ApplicationType {
   id: string;
   name: string;
   description: string;
   requirements: string[];
+  icon: React.ReactNode;
 }
 
 const applicationTypes: ApplicationType[] = [
@@ -15,6 +17,7 @@ const applicationTypes: ApplicationType[] = [
     id: 'odl',
     name: 'ODL Student Application',
     description: "For students applying for bachelor's degree programs under Open and Distance Learning",
+    icon: <GraduationCap className="w-5 h-5" />,
     requirements: [
       'High School Certificate or equivalent',
       'Minimum GPA requirements met',
@@ -25,6 +28,7 @@ const applicationTypes: ApplicationType[] = [
     id: 'postgraduate',
     name: 'Postgraduate Application',
     description: 'For students applying for master\'s or doctoral programs',
+    icon: <Award className="w-5 h-5" />,
     requirements: [
       "Bachelor's degree certificate",
       'Academic transcripts',
@@ -36,6 +40,7 @@ const applicationTypes: ApplicationType[] = [
     id: 'diploma',
     name: 'Diploma/Certificate Programs',
     description: 'For students applying for diploma or certificate courses',
+    icon: <BookOpen className="w-5 h-5" />,
     requirements: [
       'High School Certificate or equivalent',
       'Specific subject requirements (if applicable)',
@@ -45,6 +50,7 @@ const applicationTypes: ApplicationType[] = [
     id: 'international',
     name: 'International Student Application',
     description: 'For international students applying to the university',
+    icon: <Globe className="w-5 h-5" />,
     requirements: [
       'Equivalent qualifications recognized by qualifications authority',
       'English language proficiency certificate',
@@ -60,6 +66,7 @@ export default function SelectApplicationType() {
   const [selectedType, setSelectedType] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string>('');
+  const [success, setSuccess] = useState<string>('');
   const [user, setUser] = useState<any>(null);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const router = useRouter();
@@ -70,12 +77,10 @@ export default function SelectApplicationType() {
     const storedUser = localStorage.getItem('user');
     
     if (!token || !storedUser) {
-      // No token, redirect to login
       router.push('/login');
       return;
     }
     
-    // Set user from localStorage
     try {
       const parsedUser = JSON.parse(storedUser);
       setUser(parsedUser);
@@ -88,6 +93,7 @@ export default function SelectApplicationType() {
   const handleSelection = (typeId: string) => {
     setSelectedType(typeId);
     setError('');
+    setSuccess('');
   };
 
   const handleContinue = async () => {
@@ -98,6 +104,7 @@ export default function SelectApplicationType() {
 
     setIsLoading(true);
     setError('');
+    setSuccess('');
 
     try {
       const token = localStorage.getItem('token');
@@ -108,7 +115,6 @@ export default function SelectApplicationType() {
         return;
       }
 
-      // Update user role
       const updateResponse = await fetch(`${API_BASE_URL}/update-role/`, {
         method: 'POST',
         headers: {
@@ -122,7 +128,6 @@ export default function SelectApplicationType() {
       const result = await updateResponse.json();
 
       if (updateResponse.ok && result.success) {
-        // Update localStorage with new role
         const updatedUser = {
           ...user,
           role: selectedType,
@@ -132,7 +137,7 @@ export default function SelectApplicationType() {
         localStorage.setItem('userApplicationType', selectedType);
         localStorage.setItem('userRole', selectedType);
         
-        setError('✅ Success! Redirecting to personal details...');
+        setSuccess('Application type selected successfully! Redirecting...');
         
         setTimeout(() => {
           router.push('/application/personal-details');
@@ -164,156 +169,154 @@ export default function SelectApplicationType() {
     router.push('/');
   };
 
-  const handleLoginRedirect = () => {
-    router.push('/login');
+  const getSelectedTypeDetails = () => {
+    return applicationTypes.find(type => type.id === selectedType);
   };
 
-  // Show loading while checking auth
+  const selectedDetails = getSelectedTypeDetails();
+
   if (isAuthenticated === null) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100 flex items-center justify-center">
-        <div className="bg-white rounded-2xl shadow-lg p-8 text-center">
-          <div className="w-16 h-16 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <h2 className="text-xl font-semibold text-gray-800">Loading...</h2>
-          <p className="text-gray-600 mt-2">Please wait</p>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
         </div>
       </div>
     );
   }
 
-  // If not authenticated (should not happen due to redirect, but just in case)
   if (!isAuthenticated || !user) {
-    return null; // Will redirect in useEffect
+    return null;
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100 py-8">
-      <div className="max-w-6xl mx-auto px-4">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <div className="bg-white rounded-2xl shadow-lg p-8 mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <h1 className="text-4xl font-bold text-gray-800">
-                Select Your Application Type
-              </h1>
-              <div className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-medium">
-                Welcome, {user.username || user.email || 'User'}!
-              </div>
+    <div className="min-h-screen bg-gray-50 py-8">
+      <div className="max-w-4xl mx-auto px-4">
+        
+        {/* Main Card */}
+        <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
+          {/* Application Type Header */}
+          <div className="border-b border-gray-200 p-6">
+            <div className="flex items-center gap-3 mb-2">
+              <FileText className="w-6 h-6 text-gray-700" />
+              <h2 className="text-xl font-semibold text-gray-800">APPLICATION TYPE</h2>
             </div>
-            <p className="text-lg text-gray-600">
-              Choose the application type that matches your qualifications and educational goals.
-            </p>
-          </div>
-        </div>
-
-        {/* Error Message */}
-        {error && (
-          <div className={`mb-6 p-4 rounded-lg ${
-            error.includes('✅') || error.includes('Success') 
-              ? 'bg-green-50 border border-green-200 text-green-800'
-              : 'bg-red-50 border border-red-200 text-red-800'
-          }`}>
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <div className="flex items-center">
-                {error.includes('✅') || error.includes('Success') ? (
-                  <svg className="w-5 h-5 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                ) : (
-                  <svg className="w-5 h-5 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                )}
-                <p className="font-medium">{error}</p>
-              </div>
-              {(error.includes('log in') || error.includes('authenticated')) && (
-                <button
-                  onClick={handleLoginRedirect}
-                  className="text-sm bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 transition-colors"
-                >
-                  Login
-                </button>
-              )}
+            <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-lg mt-3">
+              <p className="text-sm text-gray-700">
+                Select the type of application that matches your qualifications and educational goals.
+                This will determine the requirements and process for your application.
+              </p>
             </div>
           </div>
-        )}
 
-        {/* Application Type Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-          {applicationTypes.map((type) => (
-            <div
-              key={type.id}
-              className={`border-2 rounded-xl p-6 cursor-pointer transition-all duration-200 ${
-                selectedType === type.id
-                  ? 'border-green-500 bg-green-50 shadow-lg'
-                  : 'border-gray-200 bg-white hover:border-green-300 hover:shadow-md'
-              }`}
-              onClick={() => handleSelection(type.id)}
-            >
-              <div className="flex items-start justify-between mb-4">
-                <h3 className="text-xl font-bold text-gray-800">{type.name}</h3>
-                <div
-                  className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${
-                    selectedType === type.id
-                      ? 'border-green-500 bg-green-500'
-                      : 'border-gray-300'
-                  }`}
-                >
-                  {selectedType === type.id && (
-                    <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
-                    </svg>
-                  )}
+          <div className="p-6">
+            {/* Alerts */}
+            {error && (
+              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3">
+                <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+                <p className="text-sm text-red-700">{error}</p>
+              </div>
+            )}
+            
+            {success && (
+              <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-3">
+                <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0" />
+                <p className="text-sm text-green-700">{success}</p>
+              </div>
+            )}
+
+            {/* Dropdown Selection */}
+            <div className="mb-8">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Select Application Type *
+              </label>
+              <select
+                value={selectedType}
+                onChange={(e) => handleSelection(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white text-gray-800"
+              >
+                <option value="">-- Choose your application type --</option>
+                {applicationTypes.map((type) => (
+                  <option key={type.id} value={type.id}>
+                    {type.name}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                Choose the option that best describes your applicant category
+              </p>
+            </div>
+
+            {/* Selected Type Details Card - with DOTTED BORDER */}
+            {selectedDetails && (
+              <div className="mb-8 border-2 border-dashed border-green-500 rounded-lg overflow-hidden">
+                <div className="bg-green-50 p-4 border-b border-dashed border-green-200">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-green-100 rounded-lg text-green-600">
+                      {selectedDetails.icon}
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-gray-800">{selectedDetails.name}</h3>
+                      <p className="text-sm text-gray-600">{selectedDetails.description}</p>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="p-4 bg-white">
+                  <h4 className="font-medium text-gray-700 mb-3 text-sm">Requirements:</h4>
+                  <ul className="space-y-2">
+                    {selectedDetails.requirements.map((req, index) => (
+                      <li key={index} className="flex items-start text-sm text-gray-600">
+                        <CheckCircle className="w-4 h-4 text-green-500 mr-2 mt-0.5 flex-shrink-0" />
+                        {req}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               </div>
+            )}
 
-              <p className="text-gray-600 mb-4 text-sm">{type.description}</p>
+            {/* Action Buttons */}
+            <div className="flex justify-between items-center pt-6 border-t border-gray-200">
+              <button
+                onClick={handleBack}
+                className="px-6 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                disabled={isLoading}
+              >
+                Back
+              </button>
 
-              <div className="bg-gray-50 rounded-lg p-4">
-                <h4 className="font-semibold text-gray-700 mb-2 text-sm">Requirements:</h4>
-                <ul className="text-xs text-gray-600 space-y-1">
-                  {type.requirements.map((req, index) => (
-                    <li key={index} className="flex items-start">
-                      <svg className="w-3 h-3 text-green-500 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                      </svg>
-                      <span>{req}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+              <button
+                onClick={handleContinue}
+                disabled={!selectedType || isLoading}
+                className={`px-8 py-2.5 rounded-lg text-white font-semibold transition-colors flex items-center gap-2 ${
+                  selectedType && !isLoading
+                    ? 'bg-green-600 hover:bg-green-700'
+                    : 'bg-gray-400 cursor-not-allowed'
+                }`}
+              >
+                {isLoading ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    Continue
+                    <ArrowRight className="w-5 h-5" />
+                  </>
+                )}
+              </button>
             </div>
-          ))}
+          </div>
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex justify-between items-center pt-8 border-t border-gray-200">
-          <button
-            onClick={handleBack}
-            className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
-            disabled={isLoading}
-          >
-            ← Back to Home
-          </button>
-
-          <button
-            onClick={handleContinue}
-            disabled={!selectedType || isLoading}
-            className={`px-8 py-3 rounded-lg text-white font-semibold transition-colors flex items-center gap-2 ${
-              selectedType && !isLoading
-                ? 'bg-green-600 hover:bg-green-700'
-                : 'bg-gray-400 cursor-not-allowed'
-            }`}
-          >
-            {isLoading ? (
-              <>
-                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                Processing...
-              </>
-            ) : (
-              'Continue to Application'
-            )}
-          </button>
+        {/* Help Text */}
+        <div className="text-center mt-6">
+          <p className="text-gray-500 text-sm">
+            Need help choosing? Contact our admissions office for guidance on the right application type for you.
+          </p>
         </div>
       </div>
     </div>

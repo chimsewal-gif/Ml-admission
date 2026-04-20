@@ -1,3 +1,5 @@
+// Updated Header2.tsx with notification support and dark mode
+
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -10,10 +12,24 @@ import {
   Settings as SettingsIcon,
   User as UserIcon,
   LogOut,
+  Check,
+  CheckCheck,
+  X,
 } from 'lucide-react';
 import Button from '@/componets/Button';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000/api';
+
+// Notification type definition
+interface Notification {
+  id: number;
+  title: string;
+  message: string;
+  notification_type: string;
+  is_read: boolean;
+  created_at: string;
+  link?: string;
+}
 
 const Header2 = () => {
   const [user, setUser] = useState<{ 
@@ -25,12 +41,29 @@ const Header2 = () => {
     role?: string;
   } | null>(null);
   const [showMenu, setShowMenu] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [greeting, setGreeting] = useState('');
   const [currentTime, setCurrentTime] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [loadingNotifications, setLoadingNotifications] = useState(false);
+  
   const router = useRouter();
   const pathname = usePathname();
+
+  // Load dark mode preference from localStorage
+  useEffect(() => {
+    const savedDarkMode = localStorage.getItem('darkMode');
+    const isDark = savedDarkMode === 'true';
+    setDarkMode(isDark);
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, []);
 
   // Helper to get token from localStorage
   const getToken = () => {
@@ -40,14 +73,142 @@ const Header2 = () => {
     return null;
   };
 
+  // Helper for API calls with auth
+  const authFetch = async (url: string, options: RequestInit = {}) => {
+    const token = getToken();
+    if (!token) {
+      throw new Error('No authentication token');
+    }
+    
+    return fetch(url, {
+      ...options,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+    });
+  };
+
+  // Load notifications
+  const loadNotifications = async () => {
+    const token = getToken();
+    if (!token) return;
+    
+    setLoadingNotifications(true);
+    try {
+      const response = await authFetch(`${API_BASE_URL}/notifications/`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setNotifications(data.data || []);
+          setUnreadCount(data.unread_count || 0);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading notifications:', error);
+    } finally {
+      setLoadingNotifications(false);
+    }
+  };
+
+  // Mark notification as read
+  const markAsRead = async (notificationId: number) => {
+    try {
+      const response = await authFetch(`${API_BASE_URL}/notifications/${notificationId}/read/`, {
+        method: 'PUT',
+      });
+      
+      if (response.ok) {
+        setNotifications(prev => 
+          prev.map(notif => 
+            notif.id === notificationId ? { ...notif, is_read: true } : notif
+          )
+        );
+        setUnreadCount(prev => Math.max(0, prev - 1));
+      }
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+    }
+  };
+
+  // Mark all as read
+  const markAllAsRead = async () => {
+    try {
+      const response = await authFetch(`${API_BASE_URL}/notifications/read-all/`, {
+        method: 'PUT',
+      });
+      
+      if (response.ok) {
+        setNotifications(prev => 
+          prev.map(notif => ({ ...notif, is_read: true }))
+        );
+        setUnreadCount(0);
+      }
+    } catch (error) {
+      console.error('Error marking all as read:', error);
+    }
+  };
+
+  // Delete notification
+  const deleteNotification = async (notificationId: number) => {
+    try {
+      const response = await authFetch(`${API_BASE_URL}/notifications/${notificationId}/`, {
+        method: 'DELETE',
+      });
+      
+      if (response.ok) {
+        const deletedNotif = notifications.find(n => n.id === notificationId);
+        setNotifications(prev => prev.filter(n => n.id !== notificationId));
+        if (deletedNotif && !deletedNotif.is_read) {
+          setUnreadCount(prev => Math.max(0, prev - 1));
+        }
+      }
+    } catch (error) {
+      console.error('Error deleting notification:', error);
+    }
+  };
+
+  // Format relative time
+  const formatRelativeTime = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins} min ago`;
+    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+    if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+    return date.toLocaleDateString();
+  };
+
+  // Get notification icon based on type
+  const getNotificationIcon = (type: string) => {
+    switch (type) {
+      case 'application':
+        return '📄';
+      case 'payment':
+        return '💰';
+      case 'reminder':
+        return '⏰';
+      case 'system':
+        return '⚙️';
+      default:
+        return '📌';
+    }
+  };
+
   useEffect(() => {
-    // Load user data on component mount
     loadUserData();
     
-    // Listen for login events from login page
     const handleUserLogin = () => {
       console.log('Login event detected, reloading user data...');
       loadUserData();
+      loadNotifications();
     };
     
     window.addEventListener('userLoggedIn', handleUserLogin);
@@ -57,18 +218,30 @@ const Header2 = () => {
     };
   }, []);
 
-  // Also reload user data when route changes
+  // Reload user data when route changes
   useEffect(() => {
     if (pathname !== '/login') {
       loadUserData();
     }
   }, [pathname]);
 
+  // Load notifications when user is logged in
+  useEffect(() => {
+    if (user) {
+      loadNotifications();
+      
+      const interval = setInterval(() => {
+        loadNotifications();
+      }, 30000);
+      
+      return () => clearInterval(interval);
+    }
+  }, [user]);
+
   const loadUserData = async () => {
     try {
       setIsLoading(true);
       
-      // Try to get from localStorage (fastest)
       const localUser = localStorage.getItem('user');
       const token = getToken();
       
@@ -78,8 +251,6 @@ const Header2 = () => {
           console.log('Loaded user from localStorage:', parsed);
           setUser(parsed);
           setIsLoading(false);
-          
-          // Verify token in background
           verifyTokenInBackground(token);
           return;
         } catch (err) {
@@ -88,14 +259,12 @@ const Header2 = () => {
         }
       }
       
-      // If no token, user is not logged in
       if (!token) {
         setUser(null);
         setIsLoading(false);
         return;
       }
       
-      // Verify token with backend
       await verifyToken(token);
       
     } catch (error) {
@@ -116,7 +285,6 @@ const Header2 = () => {
 
       if (!response.ok) {
         console.log('Token verification failed in background');
-        // Don't clear user immediately, let the main verification handle it
       }
     } catch (error) {
       console.error('Error verifying token in background:', error);
@@ -147,14 +315,12 @@ const Header2 = () => {
           setUser(userData);
           localStorage.setItem('user', JSON.stringify(userData));
         } else {
-          // Token invalid
           console.log('Token invalid');
           localStorage.removeItem('token');
           localStorage.removeItem('user');
           setUser(null);
         }
       } else if (response.status === 401) {
-        // Token expired or invalid
         console.log('Token expired or invalid');
         localStorage.removeItem('token');
         localStorage.removeItem('user');
@@ -168,21 +334,23 @@ const Header2 = () => {
     }
   };
 
-  useEffect(() => {
-    if (darkMode) {
+  // Toggle dark mode
+  const toggleDarkMode = () => {
+    const newDarkMode = !darkMode;
+    setDarkMode(newDarkMode);
+    localStorage.setItem('darkMode', String(newDarkMode));
+    if (newDarkMode) {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
     }
-  }, [darkMode]);
+  };
 
-  // Get time-based greeting and current time
   useEffect(() => {
     const updateTimeAndGreeting = () => {
       const now = new Date();
       const hours = now.getHours();
       
-      // Set greeting based on time of day
       if (hours < 12) {
         setGreeting('Good morning');
       } else if (hours < 18) {
@@ -191,7 +359,6 @@ const Header2 = () => {
         setGreeting('Good evening');
       }
       
-      // Format current time
       const timeString = now.toLocaleTimeString('en-US', {
         hour: '2-digit',
         minute: '2-digit',
@@ -205,7 +372,6 @@ const Header2 = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Get user initials safely
   const getUserInitials = () => {
     if (!user) return 'U';
     
@@ -225,7 +391,6 @@ const Header2 = () => {
     return 'U';
   };
 
-  // Get user display name
   const getUserDisplayName = () => {
     if (!user) return '';
     
@@ -247,7 +412,6 @@ const Header2 = () => {
     
     try {
       if (token) {
-        // Call logout endpoint
         await fetch(`${API_BASE_URL}/logout/`, {
           method: 'POST',
           headers: {
@@ -260,28 +424,27 @@ const Header2 = () => {
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
-      // Clear all user data
       setUser(null);
+      setNotifications([]);
+      setUnreadCount(0);
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       localStorage.removeItem('applicationType');
       
-      // Redirect to login
       router.push('/login');
     }
   };
 
-  // Show loading state only briefly when first loading
   if (isLoading) {
     return (
       <>
-        <header className="fixed top-0 left-0 right-0 z-50 bg-white py-4 shadow-md">
+        <header className="fixed top-0 left-0 right-0 z-50 bg-white dark:bg-gray-900 py-4 shadow-md">
           <div className="container mx-auto px-4 flex justify-between items-center">
-            <h1 className="text-green-900 font-bold text-lg sm:text-xl">
+            <h1 className="text-green-900 dark:text-green-400 font-bold text-lg sm:text-xl">
               Mzuzu University
             </h1>
             <div className="animate-pulse">
-              <div className="h-10 w-24 bg-gray-200 rounded"></div>
+              <div className="h-10 w-24 bg-gray-200 dark:bg-gray-700 rounded"></div>
             </div>
           </div>
         </header>
@@ -292,81 +455,168 @@ const Header2 = () => {
 
   return (
     <>
-      <header className="fixed top-0 left-0 right-0 z-50 bg-white py-4 shadow-md">
+      <header className="fixed top-0 left-0 right-0 z-50 bg-white dark:bg-gray-900 py-4 shadow-md dark:shadow-gray-800">
         <div className="container mx-auto px-4 flex justify-between items-center">
-          {/* Left Section - Logo and Greeting */}
           <div className="flex items-center space-x-4">
-            <h1 className="text-green-900 font-bold text-lg sm:text-xl">
-              Mzuzu University
-            </h1>
-            
-            {/* Greeting and Time - Only show when user is logged in */}
-            {user && getUserDisplayName() && (
-              <div className="hidden md:flex flex-col">
-                <span className="text-sm text-gray-600 font-medium">
-                  {greeting}, {getUserDisplayName()}!
-                </span>
-                <span className="text-xs text-gray-500">
-                  {currentTime}
-                </span>
-              </div>
-            )}
+            <Link href="/">
+              <h1 className="text-green-700 dark:text-green-400 font-bold text-lg sm:text-xl cursor-pointer hover:text-green-800 dark:hover:text-green-300 transition-colors">
+                Mzuzu University
+              </h1>
+            </Link>
           </div>
 
           <nav className="flex items-center space-x-4">
-            {/* Notifications - Hidden on mobile */}
+            {/* Notifications */}
             {user && (
-              <Link
-                href="#"
-                className="hidden sm:flex relative items-center text-green-900 font-bold hover:underline transition-colors"
-              >
-                <Bell className="w-6 h-6" />
-                <span className="absolute -top-1 -right-1 bg-green-600 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
-                  3
-                </span>
-              </Link>
+              <div className="relative">
+                <button
+                  onClick={() => {
+                    setShowNotifications(!showNotifications);
+                    if (showMenu) setShowMenu(false);
+                  }}
+                  className="relative p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                >
+                  <Bell className="w-5 h-5 sm:w-6 sm:h-6 text-gray-700 dark:text-gray-300" />
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs font-bold rounded-full min-w-[20px] h-5 px-1 flex items-center justify-center">
+                      {unreadCount > 99 ? '99+' : unreadCount}
+                    </span>
+                  )}
+                </button>
+
+                {/* Notifications Dropdown */}
+                {showNotifications && (
+                  <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 overflow-hidden">
+                    <div className="flex justify-between items-center px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
+                      <h3 className="font-semibold text-gray-900 dark:text-white">Notifications</h3>
+                      {unreadCount > 0 && (
+                        <button
+                          onClick={markAllAsRead}
+                          className="text-xs text-green-600 dark:text-green-400 hover:text-green-700 flex items-center gap-1"
+                        >
+                          <CheckCheck className="w-3 h-3" />
+                          Mark all read
+                        </button>
+                      )}
+                    </div>
+                    
+                    <div className="max-h-96 overflow-y-auto">
+                      {loadingNotifications ? (
+                        <div className="p-4 text-center text-gray-500 dark:text-gray-400">
+                          <div className="animate-pulse">Loading...</div>
+                        </div>
+                      ) : notifications.length === 0 ? (
+                        <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+                          <Bell className="w-12 h-12 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
+                          <p>No notifications yet</p>
+                        </div>
+                      ) : (
+                        notifications.map((notification) => (
+                          <div
+                            key={notification.id}
+                            className={`border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${
+                              !notification.is_read ? 'bg-blue-50 dark:bg-blue-900/20' : ''
+                            }`}
+                          >
+                            <div className="p-3">
+                              <div className="flex items-start gap-2">
+                                <div className="text-xl">
+                                  {getNotificationIcon(notification.notification_type)}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex justify-between items-start">
+                                    <p className="font-medium text-sm text-gray-900 dark:text-white">
+                                      {notification.title}
+                                    </p>
+                                    <div className="flex items-center gap-1 ml-2">
+                                      {!notification.is_read && (
+                                        <button
+                                          onClick={() => markAsRead(notification.id)}
+                                          className="p-1 text-gray-400 hover:text-green-600 dark:hover:text-green-400"
+                                          title="Mark as read"
+                                        >
+                                          <Check className="w-3 h-3" />
+                                        </button>
+                                      )}
+                                      <button
+                                        onClick={() => deleteNotification(notification.id)}
+                                        className="p-1 text-gray-400 hover:text-red-600 dark:hover:text-red-400"
+                                        title="Delete"
+                                      >
+                                        <X className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">
+                                    {notification.message}
+                                  </p>
+                                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                                    {formatRelativeTime(notification.created_at)}
+                                  </p>
+                                  {notification.link && (
+                                    <Link
+                                      href={notification.link}
+                                      className="text-xs text-green-600 dark:text-green-400 hover:underline mt-1 inline-block"
+                                      onClick={() => {
+                                        if (!notification.is_read) {
+                                          markAsRead(notification.id);
+                                        }
+                                        setShowNotifications(false);
+                                      }}
+                                    >
+                                      View details →
+                                    </Link>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
 
             {/* User Menu */}
             {user ? (
               <div className="relative">
-                {/* User info and avatar */}
                 <button
-                  onClick={() => setShowMenu(!showMenu)}
-                  className="flex items-center space-x-2 p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                  onClick={() => {
+                    setShowMenu(!showMenu);
+                    if (showNotifications) setShowNotifications(false);
+                  }}
+                  className="flex items-center space-x-2 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                 >
-                  {/* User info - Hidden on mobile */}
                   <div className="hidden sm:flex flex-col items-end">
-                    <span className="text-sm font-medium text-gray-900">
+                    <span className="text-sm font-medium text-gray-900 dark:text-white">
                       {getUserDisplayName()}
                     </span>
-                    <span className="text-xs text-gray-500">
-                      {greeting}
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      {currentTime}
                     </span>
                   </div>
                   
-                  {/* User avatar */}
                   <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-green-700 text-white font-bold flex items-center justify-center text-sm sm:text-base transition-colors">
                     {getUserInitials()}
                   </div>
                 </button>
 
-                {/* Dropdown menu */}
                 {showMenu && (
-                  <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-2">
-                    {/* User info in dropdown */}
-                    <div className="px-4 py-3 border-b border-gray-200">
-                      <p className="text-sm font-medium text-gray-900">
+                  <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-2">
+                    <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+                      <p className="text-sm font-medium text-gray-900 dark:text-white">
                         {getUserDisplayName()}
                       </p>
-                      <p className="text-sm text-gray-500 truncate">
+                      <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
                         {user.email}
                       </p>
                     </div>
 
                     <Link
                       href="/profile"
-                      className="flex items-center gap-3 px-4 py-2 text-gray-700 hover:bg-gray-100 transition-colors"
+                      className="flex items-center gap-3 px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                       onClick={() => setShowMenu(false)}
                     >
                       <UserIcon className="w-4 h-4" />
@@ -375,7 +625,7 @@ const Header2 = () => {
 
                     <Link
                       href="/settings"
-                      className="flex items-center gap-3 px-4 py-2 text-gray-700 hover:bg-gray-100 transition-colors"
+                      className="flex items-center gap-3 px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                       onClick={() => setShowMenu(false)}
                     >
                       <SettingsIcon className="w-4 h-4" />
@@ -384,10 +634,10 @@ const Header2 = () => {
 
                     <button
                       onClick={() => {
-                        setDarkMode(!darkMode);
+                        toggleDarkMode();
                         setShowMenu(false);
                       }}
-                      className="flex items-center gap-3 px-4 py-2 w-full text-left text-gray-700 hover:bg-gray-100 transition-colors"
+                      className="flex items-center gap-3 px-4 py-2 w-full text-left text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                     >
                       {darkMode ? (
                         <>
@@ -402,11 +652,11 @@ const Header2 = () => {
                       )}
                     </button>
 
-                    <div className="border-t border-gray-200 my-1"></div>
+                    <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
 
                     <button
                       onClick={handleLogout}
-                      className="flex items-center gap-3 px-4 py-2 w-full text-left text-red-600 hover:bg-gray-100 transition-colors"
+                      className="flex items-center gap-3 px-4 py-2 w-full text-left text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                     >
                       <LogOut className="w-4 h-4" />
                       <span>Logout</span>
@@ -415,14 +665,13 @@ const Header2 = () => {
                 )}
               </div>
             ) : (
-              /* Show Login button only on non-login pages */
               pathname !== '/login' && (
                 <div className="hidden sm:block">
                   <Button
                     type="button"
                     title="Login"
                     icon="/user.svg"
-                    variant="bg-gray-800"
+                    variant="bg-gray-800 dark:bg-gray-700"
                     href="/login"
                   />
                 </div>
@@ -432,7 +681,6 @@ const Header2 = () => {
         </div>
       </header>
 
-      {/* Spacer */}
       <div className="h-16" />
     </>
   );

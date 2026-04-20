@@ -3,254 +3,475 @@
 import { useState, useEffect } from 'react';
 import Button from '@/componets/Button';
 import ProgressIndicator from '@/componets/ProgressIndicator';
-import { Brain, Clock, CheckCircle, AlertCircle, TrendingUp, Target } from 'lucide-react';
+import { CheckCircle, AlertCircle, FileText, User, BookOpen, CreditCard, Upload, Bell, Calendar, PlusCircle, ChevronRight, Send, Inbox } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
-interface ApplicationProgress {
-  overallPercentage: number;
-  completionProbability: number;
-  predictedTimeline: string;
-  riskFactors: string[];
-  recommendations: string[];
-  sectionProgress: {
-    personalInfo: number;
-    academicBackground: number;
-    documents: number;
-    programSelection: number;
-    payment: number;
-  };
-  lastUpdated: Date;
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000/api';
+
+interface SectionProgress {
+  personalInfo: boolean;
+  academicBackground: boolean;
+  documents: boolean;
+  programSelection: boolean;
+  payment: boolean;
 }
 
-// ML Progress Prediction Service
-class MLProgressService {
-  static async predictProgress(userData: any, applicationData: any): Promise<ApplicationProgress> {
-    // Simulate ML API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
+interface Notification {
+  id: number;
+  title: string;
+  message: string;
+  notification_type: string;
+  is_read: boolean;
+  link: string | null;
+  created_at: string;
+  time_ago: string;
+}
 
-    const {
-      personalInfo = 0,
-      academicBackground = 0,
-      documents = 0,
-      programSelection = 0,
-      payment = 0
-    } = applicationData;
-
-    // Calculate weighted overall percentage
-    const weights = {
-      personalInfo: 0.15,
-      academicBackground: 0.25,
-      documents: 0.30,
-      programSelection: 0.20,
-      payment: 0.10
-    };
-
-    const overallPercentage = Math.round(
-      personalInfo * weights.personalInfo +
-      academicBackground * weights.academicBackground +
-      documents * weights.documents +
-      programSelection * weights.programSelection +
-      payment * weights.payment
-    );
-
-    // Predict completion probability based on progress patterns
-    let completionProbability = 0;
-    if (overallPercentage >= 90) completionProbability = 95;
-    else if (overallPercentage >= 75) completionProbability = 80;
-    else if (overallPercentage >= 50) completionProbability = 60;
-    else if (overallPercentage >= 25) completionProbability = 35;
-    else completionProbability = 15;
-
-    // Adjust based on time factors (simulated)
-    const timeFactor = this.analyzeTimePatterns(userData.createdAt);
-    completionProbability = Math.min(95, completionProbability + timeFactor);
-
-    // Predict timeline
-    const predictedTimeline = this.predictTimeline(overallPercentage, completionProbability);
-
-    // Identify risk factors
-    const riskFactors = this.identifyRiskFactors(applicationData, overallPercentage);
-
-    // Generate recommendations
-    const recommendations = this.generateRecommendations(applicationData, riskFactors);
-
-    return {
-      overallPercentage,
-      completionProbability,
-      predictedTimeline,
-      riskFactors,
-      recommendations,
-      sectionProgress: {
-        personalInfo,
-        academicBackground,
-        documents,
-        programSelection,
-        payment
-      },
-      lastUpdated: new Date()
-    };
-  }
-
-  private static analyzeTimePatterns(createdAt: string): number {
-    // Simulate time pattern analysis
-    const daysSinceCreation = (new Date().getTime() - new Date(createdAt).getTime()) / (1000 * 3600 * 24);
-    
-    if (daysSinceCreation < 7) return 10; // New application bonus
-    if (daysSinceCreation > 30) return -15; // Stale application penalty
-    return 0;
-  }
-
-  private static predictTimeline(progress: number, probability: number): string {
-    if (progress >= 90) return '1-3 days';
-    if (progress >= 70) return '3-7 days';
-    if (progress >= 50) return '1-2 weeks';
-    if (progress >= 30) return '2-3 weeks';
-    return '3-4 weeks';
-  }
-
-  private static identifyRiskFactors(applicationData: any, overallProgress: number): string[] {
-    const risks: string[] = [];
-
-    if (applicationData.documents < 50) {
-      risks.push('Document submission incomplete');
-    }
-
-    if (applicationData.personalInfo < 80) {
-      risks.push('Personal information needs completion');
-    }
-
-    if (applicationData.academicBackground < 60) {
-      risks.push('Academic history requires more details');
-    }
-
-    if (overallProgress < 30) {
-      risks.push('Low overall progress may delay review');
-    }
-
-    // Simulate ML-detected patterns
-    if (Math.random() > 0.7) {
-      risks.push('Consider verifying contact information');
-    }
-
-    return risks.slice(0, 3); // Return top 3 risks
-  }
-
-  private static generateRecommendations(applicationData: any, risks: string[]): string[] {
-    const recommendations: string[] = [];
-
-    if (applicationData.documents < 70) {
-      recommendations.push('Upload required documents to speed up processing');
-    }
-
-    if (applicationData.personalInfo < 100) {
-      recommendations.push('Complete personal information section');
-    }
-
-    if (applicationData.academicBackground < 80) {
-      recommendations.push('Fill in academic background details');
-    }
-
-    if (risks.includes('Document submission incomplete')) {
-      recommendations.push('Prioritize document upload for faster review');
-    }
-
-    // AI-powered suggestions
-    recommendations.push('Review all sections for accuracy before submission');
-    recommendations.push('Ensure documents meet quality requirements');
-
-    return recommendations.slice(0, 4); // Return top 4 recommendations
-  }
+interface Deadline {
+  id: number;
+  title: string;
+  description: string;
+  date: string;
+  days_left: number;
 }
 
 export default function DashboardPage() {
-  const [progress, setProgress] = useState<ApplicationProgress | null>(null);
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [shouldLoadProgress, setShouldLoadProgress] = useState(false);
+  const [user, setUser] = useState<any>(null);
+  const [sectionProgress, setSectionProgress] = useState<SectionProgress>({
+    personalInfo: false,
+    academicBackground: false,
+    documents: false,
+    programSelection: false,
+    payment: false
+  });
+  const [submissionStatus, setSubmissionStatus] = useState<{ is_submitted: boolean; reference_number?: string }>({ is_submitted: false });
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [deadlines, setDeadlines] = useState<Deadline[]>([]);
+
+  const getToken = () => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('token');
+    }
+    return null;
+  };
 
   useEffect(() => {
-    // Check if we should load progress - wait a bit for header to establish auth
-    const timer = setTimeout(() => {
-      // Check localStorage for user data
-      const user = localStorage.getItem('user');
-      if (user) {
-        setShouldLoadProgress(true);
-        loadUserProgress();
-      } else {
-        // No user found, still load but with minimal/default data
-        loadUserProgress();
-      }
-    }, 300); // Reduced delay to 300ms
-
-    return () => clearTimeout(timer);
+    loadUserData();
+    checkSubmissionStatus();
+    loadNotifications();
+    loadDeadlines();
   }, []);
 
-  const loadUserProgress = async () => {
+  const loadUserData = async () => {
     try {
-      setLoading(true);
-      
-      // Get user from localStorage (if available)
-      const localUser = localStorage.getItem('user');
-      let user = null;
-      
-      if (localUser) {
-        try {
-          user = JSON.parse(localUser);
-        } catch (err) {
-          console.error('Invalid user data in localStorage:', err);
-        }
+      const token = getToken();
+      if (!token) {
+        setLoading(false);
+        return;
       }
 
-      // Default application data for demo/demo user
-      const applicationData = {
-        personalInfo: user ? 75 : 0,
-        academicBackground: user ? 60 : 0,
-        documents: user ? 40 : 0,
-        programSelection: 0,
-        payment: 0
-      };
+      const userData = localStorage.getItem('user');
+      if (userData) {
+        setUser(JSON.parse(userData));
+      }
 
-      // Default user data for demo
-      const userData = user || {
-        id: 'demo',
-        email: 'guest@example.com',
-        name: 'Guest User',
-        createdAt: new Date().toISOString(),
-        role: 'guest'
-      };
+      const response = await fetch(`${API_BASE_URL}/me/`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
+        },
+      });
 
-      const progressPrediction = await MLProgressService.predictProgress(userData, applicationData);
-      setProgress(progressPrediction);
+      if (response.ok) {
+        const data = await response.json();
+        setUser(data);
+        localStorage.setItem('user', JSON.stringify(data));
+      }
+
+      await checkSectionProgress();
+      
     } catch (error) {
-      console.error('Failed to load progress:', error);
+      console.error('Error loading user data:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const getProgressColor = (percentage: number) => {
-    if (percentage >= 80) return 'text-green-600';
-    if (percentage >= 60) return 'text-yellow-600';
-    if (percentage >= 40) return 'text-orange-600';
-    return 'text-red-600';
+  const loadNotifications = async () => {
+    const token = getToken();
+    if (!token) return;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/notifications/`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setNotifications(data.data || []);
+          setUnreadCount(data.unread_count || 0);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading notifications:', error);
+      // Fallback to empty array
+      setNotifications([]);
+    }
   };
 
-  const getProgressBarColor = (percentage: number) => {
-    if (percentage >= 80) return 'bg-green-500';
-    if (percentage >= 60) return 'bg-yellow-500';
-    if (percentage >= 40) return 'bg-orange-500';
-    return 'bg-red-500';
+  const loadDeadlines = async () => {
+    const token = getToken();
+    if (!token) return;
+
+    try {
+      // You can create a deadlines endpoint or use mock data for now
+      // For now, we'll use mock deadlines until you create the backend endpoint
+      const mockDeadlines = [
+        {
+          id: 1,
+          title: "Application Deadline",
+          description: "Submit your application",
+          date: "2024-12-15",
+          days_left: 60
+        },
+        {
+          id: 2,
+          title: "Document Submission",
+          description: "Upload required documents",
+          date: "2024-12-10",
+          days_left: 55
+        },
+        {
+          id: 3,
+          title: "Entrance Exam",
+          description: "University entrance examination",
+          date: "2025-01-05",
+          days_left: 81
+        }
+      ];
+      
+      // Try to fetch from backend if endpoint exists
+      try {
+        const response = await fetch(`${API_BASE_URL}/deadlines/`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/json',
+          },
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success) {
+            setDeadlines(data.data || []);
+            return;
+          }
+        }
+      } catch (error) {
+        console.log('Deadlines endpoint not found, using mock data');
+      }
+      
+      // Fallback to mock deadlines
+      setDeadlines(mockDeadlines);
+      
+    } catch (error) {
+      console.error('Error loading deadlines:', error);
+      setDeadlines([]);
+    }
+  };
+
+  const markNotificationAsRead = async (notificationId: number) => {
+    const token = getToken();
+    if (!token) return;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/notifications/${notificationId}/read/`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        // Update local state
+        setNotifications(prev => 
+          prev.map(notif => 
+            notif.id === notificationId ? { ...notif, is_read: true } : notif
+          )
+        );
+        setUnreadCount(prev => Math.max(0, prev - 1));
+      }
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+    }
+  };
+
+  const markAllNotificationsAsRead = async () => {
+    const token = getToken();
+    if (!token) return;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/notifications/read-all/`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        // Update local state
+        setNotifications(prev => 
+          prev.map(notif => ({ ...notif, is_read: true }))
+        );
+        setUnreadCount(0);
+      }
+    } catch (error) {
+      console.error('Error marking all as read:', error);
+    }
+  };
+
+  const checkSectionProgress = async () => {
+    const token = getToken();
+    if (!token) return;
+
+    try {
+      const personalInfoRes = await fetch(`${API_BASE_URL}/personal-details/`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const personalData = await personalInfoRes.json();
+      const hasPersonalInfo = personalData.success && personalData.data && 
+        personalData.data.first_name && personalData.data.last_name && personalData.data.email;
+
+      const subjectsRes = await fetch(`${API_BASE_URL}/subject-records/`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const subjectsData = await subjectsRes.json();
+      const hasSubjects = subjectsData.success && subjectsData.data && subjectsData.data.length > 0;
+
+      const userRes = await fetch(`${API_BASE_URL}/me/`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const userData = await userRes.json();
+      
+      let hasDocuments = false;
+      if (userData.id) {
+        const docsRes = await fetch(`${API_BASE_URL}/applicants/${userData.id}/documents/`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const docsData = await docsRes.json();
+        hasDocuments = docsData.success && docsData.data && 
+          (docsData.data.msce || docsData.data.id_card);
+      }
+
+      const programmeRes = await fetch(`${API_BASE_URL}/applicants/programme/selection/`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const programmeData = await programmeRes.json();
+      const hasProgramme = programmeData.success && programmeData.data && programmeData.data.id;
+
+      const paymentRes = await fetch(`${API_BASE_URL}/application-fees/`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const paymentData = await paymentRes.json();
+      const hasPayment = paymentData.success && paymentData.data && 
+        (paymentData.data.status === 'verified' || paymentData.data.status === 'approved');
+
+      setSectionProgress({
+        personalInfo: hasPersonalInfo,
+        academicBackground: hasSubjects,
+        documents: hasDocuments,
+        programSelection: hasProgramme,
+        payment: hasPayment
+      });
+
+    } catch (error) {
+      console.error('Error checking section progress:', error);
+    }
+  };
+
+  const checkSubmissionStatus = async () => {
+    const token = getToken();
+    if (!token) return;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/submit/status/`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await response.json();
+      if (data.success) {
+        setSubmissionStatus(data.data);
+      }
+    } catch (error) {
+      console.error('Error checking submission status:', error);
+    }
+  };
+
+  const calculateOverallProgress = () => {
+    const completed = Object.values(sectionProgress).filter(Boolean).length;
+    return Math.round((completed / 5) * 100);
+  };
+
+  const sections = [
+    {
+      id: 'personalInfo',
+      title: 'Personal Information',
+      description: 'Your basic personal details',
+      icon: User,
+      href: '/application/program-selection',
+      color: 'blue'
+    },
+    {
+      id: 'academicBackground',
+      title: 'Academic Background',
+      description: 'Your education history and qualifications',
+      icon: BookOpen,
+      href: '/application/High-school-records',
+      color: 'green'
+    },
+    {
+      id: 'documents',
+      title: 'Documents Upload',
+      description: 'Upload required documents',
+      icon: Upload,
+      href: '/application/documents',
+      color: 'purple'
+    },
+    {
+      id: 'programSelection',
+      title: 'Program Selection',
+      description: 'Choose your desired program',
+      icon: FileText,
+      href: '/application/select-type',
+      color: 'orange'
+    },
+    {
+      id: 'payment',
+      title: 'Application Fee',
+      description: 'Pay application fee',
+      icon: CreditCard,
+      href: '/application/application-fees',
+      color: 'red'
+    }
+  ];
+
+  const progress = calculateOverallProgress();
+  const isSubmitted = submissionStatus.is_submitted;
+
+  // Calculate stats for the cards
+  const completedSections = Object.values(sectionProgress).filter(Boolean).length;
+  const stats = {
+    active: completedSections,
+    submitted: submissionStatus.is_submitted ? 1 : 0,
+    accepted: 0,
+    messages: unreadCount
+  };
+
+  // Circle Progress Component
+  const CircleProgress = ({ percentage, size = 120 }: { percentage: number; size?: number }) => {
+    const radius = (size - 20) / 2;
+    const circumference = 2 * Math.PI * radius;
+    const offset = circumference - (percentage / 100) * circumference;
+    const strokeWidth = 8;
+    
+    return (
+      <div className="relative" style={{ width: size, height: size }}>
+        <svg className="transform -rotate-90" width={size} height={size}>
+          {/* Background circle */}
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="none"
+            stroke="#e5e7eb"
+            strokeWidth={strokeWidth}
+          />
+          {/* Progress circle */}
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="none"
+            stroke={percentage === 100 ? '#22c55e' : percentage >= 50 ? '#3b82f6' : '#eab308'}
+            strokeWidth={strokeWidth}
+            strokeDasharray={circumference}
+            strokeDashoffset={offset}
+            strokeLinecap="round"
+            className="transition-all duration-1000 ease-out"
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-3xl font-bold text-gray-900">{percentage}%</span>
+          <span className="text-xs text-gray-500 mt-1">Complete</span>
+        </div>
+      </div>
+    );
+  };
+
+  // Get icon based on notification type
+  const getNotificationIcon = (type: string) => {
+    switch (type) {
+      case 'success':
+        return <CheckCircle className="w-4 h-4 text-green-500" />;
+      case 'warning':
+        return <AlertCircle className="w-4 h-4 text-yellow-500" />;
+      case 'application':
+        return <FileText className="w-4 h-4 text-blue-500" />;
+      case 'payment':
+        return <CreditCard className="w-4 h-4 text-purple-500" />;
+      default:
+        return <Bell className="w-4 h-4 text-gray-500" />;
+    }
   };
 
   if (loading) {
     return (
       <div className="p-4 md:p-8">
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-5xl mx-auto">
           <div className="animate-pulse">
             <div className="h-8 bg-gray-200 rounded w-3/4 mb-4"></div>
             <div className="h-4 bg-gray-200 rounded w-1/2 mb-8"></div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="h-64 bg-gray-200 rounded"></div>
-              <div className="h-64 bg-gray-200 rounded"></div>
+            <div className="grid grid-cols-4 gap-4 mb-8">
+              {[1,2,3,4].map(i => <div key={i} className="h-32 bg-gray-200 rounded"></div>)}
             </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // If application is already submitted
+  if (isSubmitted) {
+    return (
+      <div className="p-4 md:p-8">
+        <div className="max-w-4xl mx-auto">
+          <ProgressIndicator currentStep={11} />
+          
+          <div className="bg-green-50 rounded-2xl border border-green-200 p-8 text-center mt-8">
+            <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">Application Submitted!</h1>
+            <p className="text-gray-600 mb-4">
+              Your application has been successfully submitted.
+            </p>
+            {submissionStatus.reference_number && (
+              <div className="bg-white rounded-lg p-4 mb-6 inline-block">
+                <p className="text-sm text-gray-500">Reference Number</p>
+                <p className="text-xl font-bold text-green-600">{submissionStatus.reference_number}</p>
+              </div>
+            )}
+            <Button
+              type="button"
+              title="View Application Status"
+              variant="bg-green-600"
+              href="/application/status"
+            />
           </div>
         </div>
       </div>
@@ -259,201 +480,345 @@ export default function DashboardPage() {
 
   return (
     <div className="p-4 md:p-8">
-      <ProgressIndicator currentStep={1} />
+      <div className="max-w-5xl mx-auto">
+        <ProgressIndicator currentStep={1} />
 
-      {/* Welcome Section */}
-      <div className="mb-8 w-full max-w-4xl mx-auto">
-        <h1 className="text-2xl sm:text-3xl text-green-900 font-bold mb-2">
-          Welcome to Mzuzu University Applications Portal
-        </h1>
-        <p className="text-gray-500 text-base sm:text-lg">
-          Access and manage your application easily through this portal.
-        </p>
-      </div>
-
-      {/* ML Progress Analytics - Always show when we have progress data */}
-      {progress && (
-        <div className="mb-8 w-full max-w-4xl mx-auto">
-          <div className="bg-white rounded-lg shadow-lg border border-gray-200 p-6">
-            <div className="flex items-center gap-3 mb-6">
-              <Brain className="h-6 w-6 text-purple-600" />
-              <h2 className="text-xl font-bold text-gray-800">AI Progress Analytics</h2>
-              <span className="text-xs text-gray-500 ml-auto">
-                Updated: {progress.lastUpdated.toLocaleTimeString()}
-              </span>
+        {/* Welcome Section */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <div>
+              {/* Email removed as requested */}
             </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-              {/* Overall Progress */}
-              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-100">
-                <div className="flex items-center gap-2 mb-2">
-                  <TrendingUp className="h-5 w-5 text-blue-600" />
-                  <h3 className="font-semibold text-gray-700">Overall Progress</h3>
-                </div>
-                <div className="text-3xl font-bold text-blue-600 mb-2">
-                  {progress.overallPercentage}%
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div 
-                    className={`h-2 rounded-full ${getProgressBarColor(progress.overallPercentage)}`}
-                    style={{ width: `${progress.overallPercentage}%` }}
-                  ></div>
-                </div>
-              </div>
-
-              {/* Completion Probability */}
-              <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg p-4 border border-green-100">
-                <div className="flex items-center gap-2 mb-2">
-                  <Target className="h-5 w-5 text-green-600" />
-                  <h3 className="font-semibold text-gray-700">Completion Chance</h3>
-                </div>
-                <div className="text-3xl font-bold text-green-600 mb-2">
-                  {progress.completionProbability}%
-                </div>
-                <div className="text-sm text-gray-600">
-                  Based on current progress
-                </div>
-              </div>
-
-              {/* Predicted Timeline */}
-              <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-lg p-4 border border-purple-100">
-                <div className="flex items-center gap-2 mb-2">
-                  <Clock className="h-5 w-5 text-purple-600" />
-                  <h3 className="font-semibold text-gray-700">Est. Timeline</h3>
-                </div>
-                <div className="text-2xl font-bold text-purple-600 mb-2">
-                  {progress.predictedTimeline}
-                </div>
-                <div className="text-sm text-gray-600">
-                  To complete application
-                </div>
-              </div>
-
-              {/* Risk Level */}
-              <div className="bg-gradient-to-br from-orange-50 to-red-50 rounded-lg p-4 border border-orange-100">
-                <div className="flex items-center gap-2 mb-2">
-                  <AlertCircle className="h-5 w-5 text-orange-600" />
-                  <h3 className="font-semibold text-gray-700">Risk Factors</h3>
-                </div>
-                <div className="text-2xl font-bold text-orange-600 mb-2">
-                  {progress.riskFactors.length}
-                </div>
-                <div className="text-sm text-gray-600">
-                  Needs attention
-                </div>
-              </div>
-            </div>
-
-            {/* Detailed Section Progress */}
-            <div className="mb-6">
-              <h3 className="font-semibold text-gray-700 mb-4">Section Progress</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {Object.entries(progress.sectionProgress).map(([section, percentage]) => (
-                  <div key={section} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <span className="text-sm font-medium text-gray-700 capitalize">
-                      {section.replace(/([A-Z])/g, ' $1').trim()}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <span className={`text-sm font-bold ${getProgressColor(percentage)}`}>
-                        {percentage}%
-                      </span>
-                      <div className="w-20 bg-gray-200 rounded-full h-2">
-                        <div 
-                          className={`h-2 rounded-full ${getProgressBarColor(percentage)}`}
-                          style={{ width: `${percentage}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* AI Recommendations */}
-            {progress.recommendations.length > 0 && (
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                <h3 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                  <Brain className="h-5 w-5 text-yellow-600" />
-                  AI Recommendations
-                </h3>
-                <ul className="space-y-2">
-                  {progress.recommendations.map((recommendation, index) => (
-                    <li key={index} className="flex items-start gap-2 text-sm text-gray-700">
-                      <CheckCircle className="h-4 w-4 text-yellow-600 mt-0.5 flex-shrink-0" />
-                      {recommendation}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
+            <button
+              onClick={() => router.push('/application/program-selection')}
+              className="flex items-center gap-2 px-5 py-2.5 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors shadow-sm"
+            >
+              <PlusCircle className="w-5 h-5" />
+              Start New Application
+            </button>
           </div>
         </div>
-      )}
 
-      {/* Application Submission Section */}
-      <div className="mb-8 w-full max-w-4xl mx-auto">
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h2 className="text-2xl sm:text-3xl text-green-900 font-bold mb-2">
-            Application Submission
-          </h2>
-          <p className="text-gray-500 text-base sm:text-lg mb-4">
-            {progress && progress.overallPercentage > 0 ? (
-              <>
-                Your application is <span className="font-semibold text-green-600">{progress.overallPercentage}%</span> complete.
-                <br />
-                Continue where you left off to complete your submission.
-              </>
-            ) : (
-              <>
-                It looks like you have not yet started your <br className="sm:hidden" />
-                application process. Please submit the details after you fill them.
-              </>
-            )}
-          </p>
-
-          {/* Button */}
-          <div className="w-full sm:w-auto flex justify-start">
-            <Button
-              type="button"
-              title={progress && progress.overallPercentage > 0 ? "Continue Application" : "Apply Now"}
-              icon=""
-              variant="bg-teal-800"
-              href="/application/select-type"
-            />
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+          <div className="bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition-shadow">
+            <div className="flex items-center justify-between mb-3">
+              <div className="p-2 bg-blue-100 rounded-lg">
+                <FileText className="w-5 h-5 text-blue-600" />
+              </div>
+              <ChevronRight className="w-4 h-4 text-gray-400" />
+            </div>
+            <p className="text-3xl font-bold text-gray-900">{stats.active}</p>
+            <p className="text-sm text-gray-500">ACTIVE</p>
           </div>
 
-          {/* Quick Stats */}
-          {progress && progress.overallPercentage > 0 && (
-            <div className="mt-4 flex flex-wrap gap-4 text-sm text-gray-600">
-              <div className="flex items-center gap-1">
-                <Clock className="h-4 w-4" />
-                <span>Est. completion: {progress.predictedTimeline}</span>
+          <div className="bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition-shadow">
+            <div className="flex items-center justify-between mb-3">
+              <div className="p-2 bg-purple-100 rounded-lg">
+                <Send className="w-5 h-5 text-purple-600" />
               </div>
-              <div className="flex items-center gap-1">
-                <Target className="h-4 w-4" />
-                <span>Success probability: {progress.completionProbability}%</span>
+              <ChevronRight className="w-4 h-4 text-gray-400" />
+            </div>
+            <p className="text-3xl font-bold text-gray-900">{stats.submitted}</p>
+            <p className="text-sm text-gray-500">SUBMITTED</p>
+          </div>
+
+          <div className="bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition-shadow">
+            <div className="flex items-center justify-between mb-3">
+              <div className="p-2 bg-green-100 rounded-lg">
+                <CheckCircle className="w-5 h-5 text-green-600" />
               </div>
+              <ChevronRight className="w-4 h-4 text-gray-400" />
+            </div>
+            <p className="text-3xl font-bold text-gray-900">{stats.accepted}</p>
+            <p className="text-sm text-gray-500">ACCEPTED</p>
+          </div>
+
+          <div className="bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition-shadow">
+            <div className="flex items-center justify-between mb-3">
+              <div className="p-2 bg-yellow-100 rounded-lg">
+                <Inbox className="w-5 h-5 text-yellow-600" />
+              </div>
+              <ChevronRight className="w-4 h-4 text-gray-400" />
+            </div>
+            <p className="text-3xl font-bold text-gray-900">{stats.messages}</p>
+            <p className="text-sm text-gray-500">MESSAGES</p>
+          </div>
+        </div>
+
+        {/* Progress Overview Card with Circle Progress */}
+        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 mb-8">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-bold text-gray-900">Application Progress</h2>
+            {progress === 100 && (
+              <span className="flex items-center gap-1 text-green-600 text-sm font-medium">
+                <CheckCircle className="w-4 h-4" />
+                Ready to Submit
+              </span>
+            )}
+          </div>
+
+          <div className="flex flex-col md:flex-row items-center justify-between gap-8">
+            {/* Circle Progress */}
+            <div className="flex-shrink-0">
+              <CircleProgress percentage={progress} size={140} />
+            </div>
+
+            {/* Stats Cards */}
+            <div className="flex-1 grid grid-cols-2 gap-4 w-full">
+              <div className="bg-gray-50 rounded-lg p-4 text-center">
+                <p className="text-2xl font-bold text-gray-900">
+                  {Object.values(sectionProgress).filter(Boolean).length}
+                </p>
+                <p className="text-xs text-gray-500">Sections Completed</p>
+                <p className="text-xs text-gray-400 mt-1">out of 5</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-4 text-center">
+                <p className="text-2xl font-bold text-gray-900">
+                  {5 - Object.values(sectionProgress).filter(Boolean).length}
+                </p>
+                <p className="text-xs text-gray-500">Remaining</p>
+                <p className="text-xs text-gray-400 mt-1">sections to go</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Progress Message */}
+          {progress > 0 && progress < 100 && (
+            <div className="mt-6 pt-4 border-t border-gray-100">
+              <p className="text-sm text-gray-600 text-center">
+                {progress < 30 ? "You're just getting started! Complete your first section." :
+                 progress < 70 ? "Great progress! Keep going to complete your application." :
+                 "Almost there! Just a few more sections to go."}
+              </p>
             </div>
           )}
         </div>
-      </div>
 
-      {/* Risk Factors Alert */}
-      {progress && progress.riskFactors.length > 0 && (
-        <div className="mb-8 w-full max-w-4xl mx-auto">
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-            <h3 className="font-semibold text-red-800 mb-2 flex items-center gap-2">
-              <AlertCircle className="h-5 w-5" />
-              Areas Needing Attention
-            </h3>
-            <ul className="list-disc list-inside text-red-700 space-y-1">
-              {progress.riskFactors.map((risk, index) => (
-                <li key={index}>{risk}</li>
-              ))}
-            </ul>
+        {/* Application Sections */}
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Application Sections</h2>
+          
+          {sections.map((section) => {
+            const isCompleted = sectionProgress[section.id as keyof SectionProgress];
+            const Icon = section.icon;
+            
+            return (
+              <div
+                key={section.id}
+                className={`bg-white rounded-xl border transition-all hover:shadow-md ${
+                  isCompleted 
+                    ? 'border-green-200 bg-green-50/30' 
+                    : 'border-gray-200'
+                }`}
+              >
+                <div className="p-5 flex items-center justify-between">
+                  <div className="flex items-center gap-4 flex-1">
+                    <div className={`p-3 rounded-xl ${
+                      isCompleted 
+                        ? 'bg-green-100' 
+                        : `bg-${section.color}-100`
+                    }`}>
+                      <Icon className={`w-5 h-5 ${
+                        isCompleted 
+                          ? 'text-green-600' 
+                          : `text-${section.color}-600`
+                      }`} />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-gray-900">{section.title}</h3>
+                      <p className="text-sm text-gray-500">{section.description}</p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-3">
+                    {isCompleted ? (
+                      <span className="flex items-center gap-1 text-green-600 text-sm">
+                        <CheckCircle className="w-4 h-4" />
+                        <span className="hidden sm:inline">Completed</span>
+                      </span>
+                    ) : (
+                      <Button
+                        type="button"
+                        title="Start"
+                        variant="bg-green-600"
+                        href={section.href}
+                        className="px-4 py-2 text-sm"
+                      />
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Final Submission Section */}
+        {progress === 100 && (
+          <div className="mt-8 bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl border border-green-200 p-6">
+            <div className="flex items-center gap-3 mb-3">
+              <CheckCircle className="w-6 h-6 text-green-600" />
+              <h3 className="text-lg font-bold text-gray-900">Ready to Submit!</h3>
+            </div>
+            <p className="text-gray-600 mb-4">
+              All sections are complete. Review your application before final submission.
+            </p>
+            <Button
+              type="button"
+              title="Review & Submit"
+              variant="bg-green-600"
+              href="/application/submit"
+              className="px-6 py-2"
+            />
+          </div>
+        )}
+
+        {/* Incomplete Alert */}
+        {progress > 0 && progress < 100 && (
+          <div className="mt-8 bg-yellow-50 rounded-xl border border-yellow-200 p-4">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-yellow-600" />
+              <p className="text-sm text-yellow-800">
+                You have {5 - Object.values(sectionProgress).filter(Boolean).length} section(s) remaining to complete your application.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* No Progress Started */}
+        {progress === 0 && (
+          <div className="mt-8 bg-blue-50 rounded-xl border border-blue-200 p-6 text-center">
+            <FileText className="w-12 h-12 text-blue-500 mx-auto mb-3" />
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Start Your Application</h3>
+            <p className="text-gray-600 mb-4">
+              Begin your application journey by completing the sections above
+            </p>
+            <Button
+              type="button"
+              title="Get Started"
+              variant="bg-green-600"
+              href="/application/program-selection"
+              className="px-6 py-2"
+            />
+          </div>
+        )}
+
+        {/* Notifications & Deadlines Section */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
+          {/* Notifications */}
+          <div className="bg-white rounded-xl border border-gray-200">
+            <div className="p-5 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Bell className="w-5 h-5 text-gray-600" />
+                  <h2 className="text-lg font-semibold text-gray-900">Notifications</h2>
+                  {unreadCount > 0 && (
+                    <span className="px-2 py-0.5 text-xs font-medium bg-red-500 text-white rounded-full">
+                      {unreadCount}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-3">
+                  {unreadCount > 0 && (
+                    <button 
+                      onClick={markAllNotificationsAsRead}
+                      className="text-xs text-gray-500 hover:text-gray-700"
+                    >
+                      Mark all read
+                    </button>
+                  )}
+                  <button 
+                    onClick={() => router.push('/notifications')}
+                    className="text-sm text-green-600 hover:text-green-700 font-medium"
+                  >
+                    View All
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="divide-y divide-gray-100 max-h-[400px] overflow-y-auto">
+              {notifications.length > 0 ? (
+                notifications.slice(0, 5).map((notification) => (
+                  <div 
+                    key={notification.id} 
+                    className={`p-4 hover:bg-gray-50 transition-colors cursor-pointer ${!notification.is_read ? 'bg-blue-50/30' : ''}`}
+                    onClick={() => {
+                      if (!notification.is_read) {
+                        markNotificationAsRead(notification.id);
+                      }
+                      if (notification.link) {
+                        router.push(notification.link);
+                      }
+                    }}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="mt-1">
+                        {getNotificationIcon(notification.notification_type)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-900">{notification.title}</p>
+                        <p className="text-sm text-gray-600 mt-0.5 line-clamp-2">{notification.message}</p>
+                        <p className="text-xs text-gray-400 mt-1">{notification.time_ago}</p>
+                      </div>
+                      {!notification.is_read && (
+                        <div className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0 mt-2"></div>
+                      )}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="p-8 text-center">
+                  <Bell className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                  <p className="text-gray-500">No notifications yet</p>
+                  <p className="text-xs text-gray-400 mt-1">You'll see updates here when you have new notifications</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Upcoming Deadlines */}
+          <div className="bg-white rounded-xl border border-gray-200">
+            <div className="p-5 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-5 h-5 text-gray-600" />
+                  <h2 className="text-lg font-semibold text-gray-900">Upcoming Deadlines</h2>
+                </div>
+                <button className="text-sm text-green-600 hover:text-green-700 font-medium">
+                  View History
+                </button>
+              </div>
+            </div>
+            <div className="divide-y divide-gray-100">
+              {deadlines.length > 0 ? (
+                deadlines.map((deadline) => (
+                  <div key={deadline.id} className="p-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">{deadline.title}</p>
+                      <p className="text-xs text-gray-500">{deadline.description}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className={`text-sm font-medium ${
+                        deadline.days_left <= 7 ? 'text-red-600' : 
+                        deadline.days_left <= 30 ? 'text-orange-600' : 'text-green-600'
+                      }`}>
+                        {new Date(deadline.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </p>
+                      <p className="text-xs text-gray-400">{deadline.days_left} days left</p>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="p-8 text-center">
+                  <Calendar className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                  <p className="text-gray-500">No deadlines yet</p>
+                  <p className="text-xs text-gray-400 mt-1">Check back later for important dates</p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

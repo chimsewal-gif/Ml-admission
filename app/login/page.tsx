@@ -152,7 +152,7 @@ export default function LoginPage() {
       setError('✅ Login successful! Redirecting...');
       
       setTimeout(() => {
-        router.push('/application/select-type');
+        router.push('/application/dashboard');
       }, 1000);
 
     } catch (err: any) {

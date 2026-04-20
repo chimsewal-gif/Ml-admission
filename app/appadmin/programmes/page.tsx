@@ -14,7 +14,17 @@ import {
   Tag,
   CheckCircle,
   XCircle,
+  Upload,
+  AlertCircle,
+  Search,
+  Filter,
+  ChevronLeft,
+  ChevronRight,
+  GraduationCap,
+  Award,
+  University,
 } from 'lucide-react';
+import { MZUNI_PROGRAMMES, ProgrammeData, getProgrammesCount } from '@/constants/programmesData';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000/api';
 
@@ -34,12 +44,16 @@ interface Programme {
 export default function ProgrammesListPage() {
   const [programmes, setProgrammes] = useState<Programme[]>([]);
   const [loading, setLoading] = useState(true);
+  const [importing, setImporting] = useState(false);
   const [error, setError] = useState('');
+  const [importError, setImportError] = useState('');
+  const [importSuccess, setImportSuccess] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategory, setFilterCategory] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   const router = useRouter();
 
-  // Helper to get token from localStorage
   const getToken = () => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('token');
@@ -88,7 +102,6 @@ export default function ProgrammesListPage() {
       const data = await response.json();
       console.log('Programmes response:', data);
 
-      // Handle different response formats
       let programmesList: Programme[] = [];
       if (data && data.success && Array.isArray(data.data)) {
         programmesList = data.data;
@@ -110,6 +123,61 @@ export default function ProgrammesListPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleImportProgrammes = async () => {
+    const stats = getProgrammesCount();
+    if (!confirm(`This will import ${stats.total} programmes from the Mzuzu University prospectus. Continue?`)) {
+      return;
+    }
+
+    setImporting(true);
+    setImportError('');
+    setImportSuccess('');
+
+    const token = getToken();
+    if (!token) {
+      setImportError('Please login to import programmes');
+      setImporting(false);
+      return;
+    }
+
+    let imported = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    for (const prog of MZUNI_PROGRAMMES) {
+      try {
+        const existing = programmes.find(p => p.code === prog.code || p.name === prog.name);
+        if (existing) {
+          skipped++;
+          continue;
+        }
+
+        const response = await fetch(`${API_BASE_URL}/programmes/`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: JSON.stringify(prog),
+        });
+
+        if (response.ok) {
+          imported++;
+        } else {
+          failed++;
+        }
+      } catch (err) {
+        failed++;
+      }
+    }
+
+    setImportSuccess(`Import completed! Added: ${imported}, Skipped: ${skipped}, Failed: ${failed}`);
+    await fetchProgrammes();
+    setImporting(false);
+    setTimeout(() => setImportSuccess(''), 5000);
   };
 
   const handleAddProgramme = () => {
@@ -158,7 +226,6 @@ export default function ProgrammesListPage() {
         throw new Error(data.message || `Failed to delete programme: ${response.status}`);
       }
 
-      // Refresh the list
       await fetchProgrammes();
       alert('Programme deleted successfully!');
     } catch (err: any) {
@@ -177,6 +244,10 @@ export default function ProgrammesListPage() {
         return 'bg-yellow-100 text-yellow-800';
       case 'certificate':
         return 'bg-green-100 text-green-800';
+      case 'upgrading':
+        return 'bg-orange-100 text-orange-800';
+      case 'odl':
+        return 'bg-indigo-100 text-indigo-800';
       default:
         return 'bg-gray-100 text-gray-800';
     }
@@ -193,9 +264,17 @@ export default function ProgrammesListPage() {
     return matchesSearch && matchesCategory;
   });
 
+  // Pagination
+  const indexOfLastItem = currentPage * itemsPerPage;
+  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+  const currentItems = filteredProgrammes.slice(indexOfFirstItem, indexOfLastItem);
+  const totalPages = Math.ceil(filteredProgrammes.length / itemsPerPage);
+
+  const stats = getProgrammesCount();
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-green-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <Loader2 className="w-12 h-12 text-green-600 animate-spin mx-auto mb-4" />
           <p className="text-gray-600">Loading programmes...</p>
@@ -205,38 +284,64 @@ export default function ProgrammesListPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-green-50 p-6">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-8">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center space-x-3 mb-4 sm:mb-0">
-              <div className="p-3 bg-green-100 rounded-xl">
-                <BookOpen className="w-8 h-8 text-green-600" />
-              </div>
-              <div>
-                <h1 className="text-3xl font-bold text-gray-900">Programmes</h1>
-                <p className="text-gray-600 mt-1">Manage your academic programmes</p>
-              </div>
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <div className="bg-gradient-to-r from-green-700 to-green-800 text-white">
+        <div className="max-w-7xl mx-auto px-6 py-8">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold mb-2">Programmes</h1>
+              <p className="text-green-100">Manage academic programmes from Mzuzu University prospectus</p>
             </div>
-            
-            <button
-              onClick={handleAddProgramme}
-              className="inline-flex items-center space-x-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors duration-200 shadow-md hover:shadow-lg"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Add Programme</span>
-            </button>
+            <div className="flex gap-3">
+              <button
+                onClick={handleImportProgrammes}
+                disabled={importing}
+                className="flex items-center gap-2 px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {importing ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Upload className="w-4 h-4" />
+                )}
+                <span>{importing ? 'Importing...' : 'Import'}</span>
+              </button>
+              <button
+                onClick={handleAddProgramme}
+                className="flex items-center gap-2 px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add Programme</span>
+              </button>
+            </div>
           </div>
         </div>
+      </div>
 
-        {/* Error Message */}
+      <div className="max-w-7xl mx-auto px-6 py-8">
+        {/* Alerts */}
+        {importError && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <div className="flex items-center gap-3">
+              <AlertCircle className="w-5 h-5 text-red-500" />
+              <p className="text-sm text-red-700">{importError}</p>
+            </div>
+          </div>
+        )}
+
+        {importSuccess && (
+          <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+            <div className="flex items-center gap-3">
+              <CheckCircle className="w-5 h-5 text-green-500" />
+              <p className="text-sm text-green-700">{importSuccess}</p>
+            </div>
+          </div>
+        )}
+
         {error && (
           <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
             <div className="flex items-start">
-              <svg className="h-5 w-5 text-red-400 mt-0.5 mr-3" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-              </svg>
+              <AlertCircle className="h-5 w-5 text-red-400 mt-0.5 mr-3" />
               <div>
                 <p className="text-sm text-red-700 font-medium">Error</p>
                 <p className="text-sm text-red-600 mt-1">{error}</p>
@@ -245,10 +350,35 @@ export default function ProgrammesListPage() {
           </div>
         )}
 
+        {/* Stats Summary */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+          <div className="bg-white rounded-lg p-4 shadow-sm border border-gray-200">
+            <p className="text-xs text-gray-500 uppercase">Total Programmes</p>
+            <p className="text-2xl font-bold text-gray-800">{programmes.length}</p>
+          </div>
+          <div className="bg-white rounded-lg p-4 shadow-sm border border-gray-200">
+            <p className="text-xs text-gray-500 uppercase">Undergraduate</p>
+            <p className="text-2xl font-bold text-blue-600">{programmes.filter(p => p.category === 'undergraduate').length}</p>
+          </div>
+          <div className="bg-white rounded-lg p-4 shadow-sm border border-gray-200">
+            <p className="text-xs text-gray-500 uppercase">Upgrading</p>
+            <p className="text-2xl font-bold text-orange-600">{programmes.filter(p => p.category === 'upgrading').length}</p>
+          </div>
+          <div className="bg-white rounded-lg p-4 shadow-sm border border-gray-200">
+            <p className="text-xs text-gray-500 uppercase">ODeL</p>
+            <p className="text-2xl font-bold text-indigo-600">{programmes.filter(p => p.category === 'odl').length}</p>
+          </div>
+          <div className="bg-white rounded-lg p-4 shadow-sm border border-gray-200">
+            <p className="text-xs text-gray-500 uppercase">Certificate</p>
+            <p className="text-2xl font-bold text-green-600">{programmes.filter(p => p.category === 'certificate').length}</p>
+          </div>
+        </div>
+
         {/* Filters and Search */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
                 type="text"
                 placeholder="Search programmes by name, code, or department..."
@@ -256,124 +386,98 @@ export default function ProgrammesListPage() {
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
               />
-              <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
             </div>
             
-            <select
-              value={filterCategory}
-              onChange={(e) => setFilterCategory(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-            >
-              <option value="all">All Categories</option>
-              <option value="undergraduate">Undergraduate</option>
-              <option value="postgraduate">Postgraduate</option>
-              <option value="diploma">Diploma</option>
-              <option value="certificate">Certificate</option>
-            </select>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Filter className="w-4 h-4 text-gray-400" />
+                <select
+                  value={filterCategory}
+                  onChange={(e) => setFilterCategory(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white"
+                >
+                  <option value="all">All Categories</option>
+                  <option value="undergraduate">Undergraduate</option>
+                  <option value="upgrading">Upgrading</option>
+                  <option value="odl">ODeL</option>
+                  <option value="certificate">Certificate</option>
+                </select>
+              </div>
+            </div>
           </div>
         </div>
 
         {/* Programmes Table */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead>
-                <tr className="bg-gradient-to-r from-green-600 to-green-700 text-white">
-                  <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider">Code</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider">Programme Name</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider">Department</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider">Duration</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider">Category</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-4 text-center text-sm font-semibold uppercase tracking-wider">Actions</th>
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Programme Name</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Department</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Duration</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Category</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {filteredProgrammes.length === 0 ? (
+                {currentItems.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center">
+                    <td colSpan={6} className="px-6 py-12 text-center">
                       <div className="flex flex-col items-center justify-center">
                         <BookOpen className="w-12 h-12 text-gray-300 mb-4" />
                         <p className="text-gray-500 text-lg font-medium">No programmes found</p>
                         <p className="text-gray-400 text-sm mt-1">
                           {searchTerm || filterCategory !== 'all' 
                             ? 'Try adjusting your search or filters' 
-                            : 'Click the "Add Programme" button to create one.'}
+                            : 'Click "Import" to load programmes from prospectus'}
                         </p>
                       </div>
                     </td>
                   </tr>
                 ) : (
-                  filteredProgrammes.map((prog) => (
-                    <tr key={prog.id} className="hover:bg-green-50/30 transition-colors duration-200">
+                  currentItems.map((prog) => (
+                    <tr key={prog.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4">
-                        <code className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-xs font-mono">
-                          {prog.code || 'N/A'}
-                        </code>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center space-x-2">
-                          <BookOpen className="w-4 h-4 text-green-600" />
-                          <span className="text-sm font-medium text-gray-900">{prog.name}</span>
+                        <div>
+                          <p className="font-medium text-gray-900">{prog.name}</p>
+                          <p className="text-xs text-gray-500 mt-1">{prog.code}</p>
                         </div>
-                        {prog.description && (
-                          <p className="text-xs text-gray-500 mt-1 line-clamp-1">{prog.description}</p>
-                        )}
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center space-x-2">
-                          <Building className="w-4 h-4 text-gray-400" />
-                          <span className="text-sm text-gray-600">{prog.department || 'Not Assigned'}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center space-x-2">
-                          <Calendar className="w-4 h-4 text-gray-400" />
-                          <span className="text-sm text-gray-600">{prog.duration}</span>
-                        </div>
-                      </td>
+                       </td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{prog.department || 'Not Assigned'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{prog.duration}</td>
                       <td className="px-6 py-4">
                         <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getCategoryBadgeColor(prog.category)}`}>
-                          <Tag className="w-3 h-3 mr-1" />
-                          {prog.category || 'N/A'}
+                          {prog.category?.toUpperCase() || 'N/A'}
                         </span>
                       </td>
                       <td className="px-6 py-4">
-                        <span className={`inline-flex items-center px-2 py-1 text-xs font-medium rounded-full ${
-                          prog.is_active
-                            ? 'bg-green-100 text-green-800'
-                            : 'bg-red-100 text-red-800'
-                        }`}>
-                          {prog.is_active ? (
-                            <CheckCircle className="w-3 h-3 mr-1" />
-                          ) : (
-                            <XCircle className="w-3 h-3 mr-1" />
-                          )}
+                        <span className={`inline-flex items-center gap-1 text-xs font-medium ${prog.is_active ? 'text-green-600' : 'text-red-600'}`}>
+                          {prog.is_active ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
                           {prog.is_active ? 'Active' : 'Inactive'}
                         </span>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="flex items-center justify-center space-x-2">
+                        <div className="flex items-center justify-center gap-2">
                           <button
                             onClick={() => handleViewProgramme(prog.id)}
-                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors duration-200"
-                            title="View Programme"
+                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                            title="View"
                           >
                             <Eye className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => handleEditProgramme(prog.id)}
-                            className="p-2 text-yellow-600 hover:bg-yellow-50 rounded-lg transition-colors duration-200"
-                            title="Edit Programme"
+                            className="p-1.5 text-yellow-600 hover:bg-yellow-50 rounded-lg transition-colors"
+                            title="Edit"
                           >
                             <Edit className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => handleDeleteProgramme(prog.id, prog.name)}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors duration-200"
-                            title="Delete Programme"
+                            className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            title="Delete"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -386,20 +490,50 @@ export default function ProgrammesListPage() {
             </table>
           </div>
 
-          {/* Table Footer */}
+          {/* Pagination Footer */}
           {filteredProgrammes.length > 0 && (
-            <div className="px-6 py-4 bg-gray-50 border-t border-gray-100">
-              <div className="flex items-center justify-between">
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <p className="text-sm text-gray-600">
-                  Showing <span className="font-medium">{filteredProgrammes.length}</span> of{' '}
-                  <span className="font-medium">{programmes.length}</span> programmes
+                  Showing {indexOfFirstItem + 1} to {Math.min(indexOfLastItem, filteredProgrammes.length)} of {filteredProgrammes.length} results
                 </p>
-                <button
-                  onClick={fetchProgrammes}
-                  className="text-sm text-green-600 hover:text-green-700 font-medium"
-                >
-                  Refresh
-                </button>
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-600">Rows per page:</span>
+                    <select
+                      value={itemsPerPage}
+                      onChange={(e) => {
+                        setItemsPerPage(Number(e.target.value));
+                        setCurrentPage(1);
+                      }}
+                      className="px-2 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                    >
+                      <option value={5}>5</option>
+                      <option value={10}>10</option>
+                      <option value={20}>20</option>
+                      <option value={50}>50</option>
+                    </select>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                      disabled={currentPage === 1}
+                      className="p-2 border border-gray-300 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <span className="px-4 py-2 text-sm text-gray-700">
+                      Page {currentPage} of {totalPages}
+                    </span>
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                      disabled={currentPage === totalPages}
+                      className="p-2 border border-gray-300 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           )}

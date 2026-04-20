@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BookOpen, CheckCircle, Brain, Target, Sparkles, Filter } from "lucide-react";
+import { BookOpen, CheckCircle, GraduationCap, Clock, Building2, AlertCircle, X, ChevronDown, Award, Star, TrendingUp } from "lucide-react";
 import axios from "axios";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000/api';
@@ -13,28 +13,43 @@ type Programme = {
   department?: string;
   duration?: string;
   category?: string;
+  code?: string;
+  is_active?: boolean;
 };
 
-type RecommendedProgramme = Programme & {
-  confidence_score: number;
-  match_reason: string;
-  requirements: string[];
-  career_opportunities: string[];
-  is_recommended?: boolean;
+type Choice = {
+  id: number;
+  programme: Programme | null;
+};
+
+// Map application types to programme categories
+const getCategoryFromApplicationType = (applicationType: string): string[] => {
+  const categoryMap: Record<string, string[]> = {
+    'odl': ['ODL', 'Open and Distance Learning', 'Distance', 'Bachelor'],
+    'postgraduate': ['Postgraduate', 'Master', 'Doctoral', 'PhD', 'Masters'],
+    'diploma': ['Diploma', 'Certificate', 'Undergraduate'],
+    'international': ['International', 'Bachelor', 'Undergraduate', 'Postgraduate']
+  };
+  return categoryMap[applicationType] || ['Bachelor', 'Undergraduate', 'Diploma'];
 };
 
 export default function ProgrammesPage() {
   const [programmes, setProgrammes] = useState<Programme[]>([]);
-  const [recommendedProgrammes, setRecommendedProgrammes] = useState<RecommendedProgramme[]>([]);
-  const [selectedProgramme, setSelectedProgramme] = useState<Programme | null>(null);
-  const [savedProgramme, setSavedProgramme] = useState<Programme | null>(null);
+  const [filteredProgrammes, setFilteredProgrammes] = useState<Programme[]>([]);
+  const [choices, setChoices] = useState<Choice[]>([
+    { id: 1, programme: null },
+    { id: 2, programme: null },
+    { id: 3, programme: null },
+    { id: 4, programme: null },
+    { id: 5, programme: null },
+    { id: 6, programme: null },
+  ]);
+  const [savedChoices, setSavedChoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [predicting, setPredicting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [notification, setNotification] = useState("");
-  const [notificationType, setNotificationType] = useState<"success" | "error">("success");
-  const [showRecommended, setShowRecommended] = useState(true);
-  const [showOnlyRecommended, setShowOnlyRecommended] = useState(true);
+  const [notificationType, setNotificationType] = useState<"success" | "error" | "warning">("success");
+  const [applicationType, setApplicationType] = useState<string>("");
   const router = useRouter();
 
   // Helper to get token from localStorage
@@ -43,6 +58,14 @@ export default function ProgrammesPage() {
       return localStorage.getItem('token');
     }
     return null;
+  };
+
+  // Get application type from localStorage
+  const getApplicationType = () => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('userApplicationType') || localStorage.getItem('userRole') || '';
+    }
+    return '';
   };
 
   // Fetch programmes from Django API
@@ -64,21 +87,26 @@ export default function ProgrammesPage() {
         },
       });
 
-      // Handle different response formats
+      let allProgrammes: Programme[] = [];
       if (response.data && response.data.success) {
-        setProgrammes(response.data.data || []);
+        allProgrammes = response.data.data || [];
       } else if (Array.isArray(response.data)) {
-        setProgrammes(response.data);
+        allProgrammes = response.data;
       } else if (response.data && response.data.results) {
-        setProgrammes(response.data.results);
+        allProgrammes = response.data.results;
       } else {
         console.error('Unexpected response format:', response.data);
-        setProgrammes([]);
+        allProgrammes = [];
       }
+
+      setProgrammes(allProgrammes);
+      
+      // Filter programmes based on application type
+      filterProgrammesByType(allProgrammes, applicationType);
+      
     } catch (err: any) {
       console.error("Failed to fetch programmes:", err);
       
-      // Handle authentication errors
       if (err.response?.status === 401) {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
@@ -90,193 +118,175 @@ export default function ProgrammesPage() {
       setNotification(errorMessage);
       setNotificationType("error");
       setProgrammes([]);
+      setFilteredProgrammes([]);
     } finally {
       setLoading(false);
     }
   };
 
-  // Fetch saved programme
-  const fetchSavedProgramme = async () => {
+  // Filter programmes based on application type
+  const filterProgrammesByType = (allProgrammes: Programme[], type: string) => {
+    if (!type) {
+      setFilteredProgrammes(allProgrammes);
+      return;
+    }
+    
+    const allowedCategories = getCategoryFromApplicationType(type);
+    
+    // Filter programmes that match the application type
+    const filtered = allProgrammes.filter(programme => {
+      const category = programme.category?.toLowerCase() || '';
+      const name = programme.name?.toLowerCase() || '';
+      const department = programme.department?.toLowerCase() || '';
+      
+      // Check if programme matches any of the allowed categories
+      return allowedCategories.some(allowed => 
+        category.includes(allowed.toLowerCase()) ||
+        name.includes(allowed.toLowerCase()) ||
+        department.includes(allowed.toLowerCase())
+      );
+    });
+    
+    setFilteredProgrammes(filtered);
+    
+    if (filtered.length === 0) {
+      setNotification(`No programmes found for ${getApplicationTypeName(type)}. Please contact support.`);
+      setNotificationType("warning");
+      setTimeout(() => setNotification(""), 5000);
+    }
+  };
+
+  // Get readable application type name
+  const getApplicationTypeName = (type: string): string => {
+    const names: Record<string, string> = {
+      'odl': 'ODL Student',
+      'postgraduate': 'Postgraduate',
+      'diploma': 'Diploma/Certificate',
+      'international': 'International Student'
+    };
+    return names[type] || type;
+  };
+
+  // Fetch saved choices
+  const fetchSavedChoices = async () => {
     try {
       const token = getToken();
       if (!token) return;
 
-      const response = await axios.get(`${API_BASE_URL}/applicants/programme/selection/`, {
+      const response = await axios.get(`${API_BASE_URL}/applicants/programme-choices`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Accept': 'application/json',
         },
       });
 
-      if (response.data && response.data.id) {
-        setSavedProgramme(response.data);
-        setSelectedProgramme(response.data);
+      if (response.data && response.data.success && response.data.choices && response.data.choices.length > 0) {
+        const savedChoicesData = response.data.choices;
+        setSavedChoices(savedChoicesData);
+        
+        // Map the saved choices to the choices state
+        const newChoices = [...choices];
+        savedChoicesData.forEach((savedChoice: any) => {
+          const index = savedChoice.choice_number - 1;
+          if (index >= 0 && index < 6) {
+            newChoices[index] = {
+              id: savedChoice.choice_number,
+              programme: {
+                id: savedChoice.programme_id,
+                name: savedChoice.programme_name,
+                department: savedChoice.department,
+                duration: savedChoice.duration,
+                category: savedChoice.category
+              }
+            };
+          }
+        });
+        setChoices(newChoices);
       }
     } catch (err: any) {
-      // 404 is expected when no programme is saved yet
-      if (err.response?.status !== 404) {
-        console.warn("Error fetching saved programme:", err);
+      if (err.response?.status === 422) {
+        console.log("No saved choices found (expected for new users)");
+      } else if (err.response?.status !== 404) {
+        console.warn("Error fetching saved choices:", err);
       }
     }
   };
 
-  // Get ML-based programme recommendations
-  const getRecommendedProgrammes = async () => {
-    try {
-      setPredicting(true);
-      const token = getToken();
-      
-      if (!token) {
-        setNotification("Please login to get recommendations");
-        setNotificationType("error");
-        return;
-      }
-
-      // Get recommendations based on academic records
-      const response = await axios.post(
-        `${API_BASE_URL}/predict-courses/`,
-        {},
-        {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Accept': 'application/json',
-          },
-        }
-      );
-
-      if (response.data && response.data.success && response.data.recommendations) {
-        const recommendations = response.data.recommendations;
-        
-        // Map recommendations to programme format and mark as recommended
-        const recommendedProgrammesList: RecommendedProgramme[] = recommendations.map((rec: any, index: number) => ({
-          id: index + 1000, // Temporary ID for recommendations
-          name: rec.course_name || rec.name,
-          department: rec.university || rec.department || "Recommended",
-          description: rec.match_reason || rec.description,
-          confidence_score: rec.confidence_score || 0.8,
-          match_reason: rec.match_reason || "Based on your academic performance",
-          requirements: rec.requirements || [],
-          career_opportunities: rec.career_opportunities || [],
-          duration: rec.duration || "4 Years",
-          category: rec.category || "Undergraduate",
-          is_recommended: true
-        }));
-
-        setRecommendedProgrammes(recommendedProgrammesList);
-        setNotification("AI recommendations generated based on your academic performance!");
-        setNotificationType("success");
-        
-        // Auto-select the top recommendation if none is selected
-        if (!selectedProgramme && recommendedProgrammesList.length > 0) {
-          setSelectedProgramme(recommendedProgrammesList[0]);
-        }
-      }
-    } catch (err: any) {
-      console.warn("Failed to get recommendations:", err);
-      // Don't show error as this is not critical
-    } finally {
-      setPredicting(false);
-    }
-  };
-
-  useEffect(() => {
-    // Check authentication on mount
-    const token = getToken();
-    if (!token) {
-      router.push('/login');
-      return;
-    }
-    
-    fetchProgrammes();
-    fetchSavedProgramme();
-  }, []);
-
-  // Get recommendations when programmes are loaded
-  useEffect(() => {
-    if (programmes.length > 0 && !savedProgramme) {
-      getRecommendedProgrammes();
-    }
-  }, [programmes, savedProgramme]);
-
-  // Handle saving the selected programme
-  const handleSaveProgramme = async () => {
-    if (!selectedProgramme) {
-      setNotification("Please select a programme first");
-      setNotificationType("error");
-      setTimeout(() => setNotification(""), 5000);
+  // Save choices to backend
+  const handleSaveChoices = async () => {
+    if (!canProceed) {
+      setNotification("Please select all 6 programmes before saving.");
+      setNotificationType("warning");
+      setTimeout(() => setNotification(""), 3000);
       return;
     }
 
     setSaving(true);
+    
     try {
       const token = getToken();
       
       if (!token) {
-        setNotification("Please login to save programme");
+        setNotification("Please login to continue");
         setNotificationType("error");
         router.push('/login');
         return;
       }
 
-      // Prepare the programme data
-      const programmeData = {
-        programme_id: selectedProgramme.id,
-        name: selectedProgramme.name,
-        department: selectedProgramme.department || "General",
-        duration: selectedProgramme.duration || "4 Years",
-        category: selectedProgramme.category || "Undergraduate",
-      };
+      const choicesData = choices.map((choice) => ({
+        choice_number: choice.id,
+        programme_id: choice.programme?.id,
+        programme_name: choice.programme?.name || "",
+        department: choice.programme?.department || "",
+        duration: choice.programme?.duration || "",
+        category: choice.programme?.category || ""
+      }));
 
-      console.log('Saving programme data:', programmeData);
-
+      const endpoint = `${API_BASE_URL}/applicants/programme-choices`;
+      
       const response = await axios.post(
-        `${API_BASE_URL}/applicants/select-programme/`, 
-        programmeData,
+        endpoint,
+        { choices: choicesData },
         {
           headers: {
             'Authorization': `Bearer ${token}`,
-            'Accept': 'application/json',
             'Content-Type': 'application/json',
+            'Accept': 'application/json',
           },
         }
       );
 
-      if (response.status === 200 || response.status === 201) {
-        setSavedProgramme(selectedProgramme);
-        setNotification(`Programme "${selectedProgramme.name}" selected successfully!`);
+      if (response.data && response.data.success) {
+        setNotification("Programme choices saved successfully!");
         setNotificationType("success");
+        setSavedChoices(choicesData);
         
-        // Redirect to next step
         setTimeout(() => {
           router.push("/application/documents");
-        }, 1500);
+        }, 2000);
       } else {
-        throw new Error("Failed to save programme");
+        throw new Error(response.data?.message || "Failed to save choices");
       }
+      
     } catch (err: any) {
-      console.error("Failed to save programme:", err);
+      console.error("Error saving choices:", err);
       
-      let errorMessage = "Failed to save programme selection";
+      let errorMessage = "Failed to save programme choices. Please try again.";
       
-      if (err.response) {
-        console.error("Response data:", err.response.data);
-        console.error("Response status:", err.response.status);
-        
-        if (err.response.status === 401) {
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
-          router.push('/login');
-          return;
+      if (err.response?.data?.detail) {
+        if (Array.isArray(err.response.data.detail)) {
+          errorMessage = err.response.data.detail.map((d: any) => d.msg).join(", ");
+        } else if (typeof err.response.data.detail === 'string') {
+          errorMessage = err.response.data.detail;
+        } else {
+          errorMessage = JSON.stringify(err.response.data.detail);
         }
-        
-        if (err.response.data.errors) {
-          const validationErrors = err.response.data.errors;
-          errorMessage = "Validation failed: " + Object.values(validationErrors).flat().join(', ');
-        } else if (err.response.data.message) {
-          errorMessage = err.response.data.message;
-        } else if (err.response.data.error) {
-          errorMessage = err.response.data.error;
-        }
+      } else if (err.response?.data?.message) {
+        errorMessage = err.response.data.message;
+      } else if (err.response?.data?.error) {
+        errorMessage = err.response.data.error;
+      } else if (err.message) {
+        errorMessage = err.message;
       }
       
       setNotification(errorMessage);
@@ -287,396 +297,278 @@ export default function ProgrammesPage() {
     }
   };
 
-  // Refresh recommendations
-  const handleRefreshRecommendations = async () => {
-    await getRecommendedProgrammes();
+  useEffect(() => {
+    const token = getToken();
+    if (!token) {
+      router.push('/login');
+      return;
+    }
+    
+    const userType = getApplicationType();
+    setApplicationType(userType);
+    
+    if (!userType) {
+      setNotification("Please select your application type first.");
+      setNotificationType("warning");
+      setTimeout(() => {
+        router.push('/application/select-type');
+      }, 2000);
+      return;
+    }
+    
+    fetchProgrammes();
+    fetchSavedChoices();
+  }, []);
+
+  useEffect(() => {
+    if (programmes.length > 0 && applicationType) {
+      filterProgrammesByType(programmes, applicationType);
+    }
+  }, [programmes, applicationType]);
+
+  // Update choice at specific index
+  const updateChoice = (choiceId: number, programmeId: number) => {
+    const selectedProgramme = filteredProgrammes.find(p => p.id === programmeId);
+    
+    // Check if programme is already selected in another choice
+    const isAlreadySelected = choices.some(choice => 
+      choice.id !== choiceId && choice.programme?.id === programmeId
+    );
+    
+    if (isAlreadySelected) {
+      setNotification("This programme is already selected in another choice. Please choose a different programme.");
+      setNotificationType("warning");
+      setTimeout(() => setNotification(""), 3000);
+      return;
+    }
+    
+    setChoices(prev => prev.map(choice =>
+      choice.id === choiceId
+        ? { ...choice, programme: selectedProgramme || null }
+        : choice
+    ));
   };
 
-  // Get programmes to display in table
-  const getDisplayProgrammes = () => {
-    if (showOnlyRecommended && recommendedProgrammes.length > 0) {
-      return recommendedProgrammes;
-    }
-    return programmes;
+  // Remove a choice
+  const removeChoice = (choiceId: number) => {
+    setChoices(prev => prev.map(choice =>
+      choice.id === choiceId
+        ? { ...choice, programme: null }
+        : choice
+    ));
+  };
+
+  // Check if all choices are filled
+  const areAllChoicesFilled = choices.every(choice => choice.programme !== null);
+  const canProceed = areAllChoicesFilled;
+
+  // Get available programmes for dropdown (excluding already selected ones)
+  const getAvailableProgrammes = (currentChoiceId: number) => {
+    const selectedIds = choices
+      .filter(choice => choice.id !== currentChoiceId && choice.programme)
+      .map(choice => choice.programme!.id);
+    
+    return filteredProgrammes.filter(p => !selectedIds.includes(p.id));
+  };
+
+  // Get rank label
+  const getRankLabel = (index: number) => {
+    const ranks = [
+      { label: "1st Choice", icon: Award, color: "text-green-600", bg: "bg-green-100" },
+      { label: "2nd Choice", icon: Star, color: "text-green-600", bg: "bg-green-100" },
+      { label: "3rd Choice", icon: TrendingUp, color: "text-green-600", bg: "bg-green-100" },
+      { label: "4th Choice", icon: Award, color: "text-green-600", bg: "bg-green-100" },
+      { label: "5th Choice", icon: Star, color: "text-green-600", bg: "bg-green-100" },
+      { label: "6th Choice", icon: TrendingUp, color: "text-green-600", bg: "bg-green-100" },
+    ];
+    return ranks[index];
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-green-50 p-4 sm:p-6">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center space-x-3">
-            <div className="p-3 bg-green-100 rounded-xl">
-              <BookOpen className="w-8 h-8 text-green-600" />
+    <div className="min-h-screen bg-gray-50 py-8">
+      <div className="max-w-4xl mx-auto px-4">
+        {/* Main Card */}
+        <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
+          {/* Header */}
+          <div className="border-b border-gray-200 p-6">
+            <div className="flex items-center gap-3 mb-2">
+              <BookOpen className="w-6 h-6 text-gray-700" />
+              <h2 className="text-xl font-semibold text-gray-800">PROGRAMME SELECTION</h2>
             </div>
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">Select Your Programme</h1>
-              <p className="text-gray-600 mt-1">Choose the programme you wish to study</p>
-            </div>
-          </div>
-        </div>
-
-        {/* AI Recommendations Banner */}
-        {recommendedProgrammes.length > 0 && showRecommended && (
-          <div className="mb-6 bg-gradient-to-r from-purple-500 to-blue-600 rounded-2xl shadow-lg p-6 text-white">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-4">
-                <div className="p-2 bg-white/20 rounded-lg">
-                  <Sparkles className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold">AI Programme Recommendations</h3>
-                  <p className="opacity-90">Based on your academic performance and subject strengths</p>
-                </div>
-              </div>
-              <div className="flex space-x-3">
-                <button
-                  onClick={handleRefreshRecommendations}
-                  disabled={predicting}
-                  className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition-all duration-200 disabled:opacity-50"
-                >
-                  {predicting ? 'Refreshing...' : 'Refresh'}
-                </button>
-                <button
-                  onClick={() => setShowRecommended(false)}
-                  className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition-all duration-200"
-                >
-                  Hide
-                </button>
-              </div>
+            <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-lg mt-3">
+              <p className="text-sm text-gray-700">
+                You are applying as: <strong className="text-green-700">{getApplicationTypeName(applicationType)}</strong>
+              </p>
+              <p className="text-sm text-gray-600 mt-1">
+                Select your preferred programmes in order of priority. You must select exactly 6 programmes.
+              </p>
             </div>
           </div>
-        )}
 
-        {/* Saved Programme Banner */}
-        {savedProgramme && (
-          <div className="mb-8 bg-gradient-to-r from-green-500 to-green-600 rounded-2xl shadow-lg p-6 text-white">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <CheckCircle className="w-8 h-8" />
-                <div>
-                  <h3 className="text-lg font-bold">Programme Selected</h3>
-                  <p className="opacity-90">Your application will be processed for this programme</p>
-                </div>
-              </div>
-              <div className="text-right">
-                <p className="font-semibold">{savedProgramme.name}</p>
-                <p className="text-sm opacity-90">{savedProgramme.department}</p>
-                {savedProgramme.duration && (
-                  <p className="text-sm opacity-90">Duration: {savedProgramme.duration}</p>
+          <div className="p-6">
+            {/* Notification */}
+            {notification && (
+              <div className={`mb-6 p-4 rounded-lg flex items-center gap-3 ${
+                notificationType === "success" 
+                  ? "bg-green-50 border border-green-200 text-green-800" 
+                  : notificationType === "warning"
+                  ? "bg-yellow-50 border border-yellow-200 text-yellow-800"
+                  : "bg-red-50 border border-red-200 text-red-800"
+              }`}>
+                {notificationType === "success" ? (
+                  <CheckCircle className="w-5 h-5 flex-shrink-0" />
+                ) : notificationType === "warning" ? (
+                  <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                ) : (
+                  <X className="w-5 h-5 flex-shrink-0" />
                 )}
+                <p className="text-sm">{notification}</p>
               </div>
-            </div>
-          </div>
-        )}
+            )}
 
-        {/* Notification */}
-        {notification && (
-          <div className={`fixed top-4 right-4 px-6 py-3 rounded-lg shadow-lg z-50 animate-fade-in-out ${
-            notificationType === "success" 
-              ? "bg-green-600 text-white" 
-              : "bg-red-600 text-white"
-          }`}>
-            <div className="flex items-center space-x-2">
-              {notificationType === "success" ? (
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                </svg>
-              ) : (
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                </svg>
-              )}
-              <span>{notification}</span>
-            </div>
-          </div>
-        )}
+            {/* Loading State */}
+            {loading ? (
+              <div className="text-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto mb-4"></div>
+                <p className="text-gray-600">Loading programmes...</p>
+              </div>
+            ) : (
+              <>
+                {/* Choices Grid */}
+                <div className="space-y-4 mb-8">
+                  {choices.map((choice, index) => {
+                    const { label, icon: Icon, color, bg } = getRankLabel(index);
+                    const availableProgrammes = getAvailableProgrammes(choice.id);
+                    
+                    return (
+                      <div
+                        key={choice.id}
+                        className="border border-gray-200 rounded-lg p-4 hover:border-green-300 transition-all duration-200"
+                      >
+                        <div className="flex flex-col md:flex-row md:items-start gap-4">
+                          {/* Rank Badge */}
+                          <div className={`flex items-center gap-2 ${bg} rounded-lg px-3 py-1.5 min-w-[110px]`}>
+                            <Icon className={`w-4 h-4 ${color}`} />
+                            <span className={`font-semibold text-sm ${color}`}>{label}</span>
+                          </div>
 
-        {/* Recommended Programmes Section */}
-        {recommendedProgrammes.length > 0 && showRecommended && (
-          <div className="mb-8">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-gray-900 flex items-center space-x-2">
-                <Target className="w-5 h-5 text-purple-600" />
-                <span>Recommended For You</span>
-              </h2>
-              <span className="text-sm text-gray-500 bg-purple-100 px-3 py-1 rounded-full">
-                AI-Powered Matching
-              </span>
-            </div>
+                          {/* Programme Select Dropdown */}
+                          <div className="flex-1">
+                            <select
+                              value={choice.programme?.id || ""}
+                              onChange={(e) => updateChoice(choice.id, parseInt(e.target.value))}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white text-gray-800"
+                            >
+                              <option value="">-- Select a programme --</option>
+                              {availableProgrammes.map((programme) => (
+                                <option key={programme.id} value={programme.id}>
+                                  {programme.name} - {programme.department || "No Dept"} ({programme.duration || "N/A"})
+                                </option>
+                              ))}
+                            </select>
+                            
+                            {/* Selected Programme Details */}
+                            {choice.programme && (
+                              <div className="mt-3 p-3 bg-gray-50 rounded-lg">
+                                <div className="flex flex-wrap gap-3 text-sm">
+                                  <div className="flex items-center gap-1 text-gray-600">
+                                    <Building2 className="w-4 h-4 text-green-600" />
+                                    <span>{choice.programme.department || "Not specified"}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1 text-gray-600">
+                                    <Clock className="w-4 h-4 text-green-600" />
+                                    <span>{choice.programme.duration || "Not specified"}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1 text-gray-600">
+                                    <BookOpen className="w-4 h-4 text-green-600" />
+                                    <span>{choice.programme.category || "Not specified"}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-              {recommendedProgrammes.slice(0, 3).map((programme, index) => (
-                <div
-                  key={programme.id}
-                  className={`bg-white rounded-xl shadow-sm border-2 p-4 cursor-pointer transition-all duration-200 hover:shadow-md ${
-                    selectedProgramme?.id === programme.id 
-                      ? 'border-purple-500 bg-purple-50' 
-                      : 'border-gray-200 hover:border-purple-300'
-                  }`}
-                  onClick={() => setSelectedProgramme(programme)}
-                >
-                  <div className="flex justify-between items-start mb-3">
-                    <div className="flex items-center space-x-2">
-                      <div className={`p-1 rounded ${
-                        index === 0 ? 'bg-yellow-100 text-yellow-600' :
-                        index === 1 ? 'bg-gray-100 text-gray-600' :
-                        'bg-orange-100 text-orange-600'
-                      }`}>
-                        {index === 0 && <Sparkles className="w-4 h-4" />}
-                        {index === 1 && <Target className="w-4 h-4" />}
-                        {index === 2 && <Brain className="w-4 h-4" />}
+                          {/* Remove Button */}
+                          {choice.programme && (
+                            <button
+                              onClick={() => removeChoice(choice.id)}
+                              className="p-1.5 text-gray-400 hover:text-red-500 transition-colors"
+                              title="Remove selection"
+                            >
+                              <X className="w-5 h-5" />
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <span className="text-sm font-medium text-gray-500">
-                        {index === 0 ? 'Best Match' : index === 1 ? 'Great Fit' : 'Good Option'}
-                      </span>
-                    </div>
-                    <div className="bg-green-100 text-green-800 text-xs font-medium px-2 py-1 rounded-full">
-                      {Math.round((programme.confidence_score || 0) * 100)}% Match
-                    </div>
-                  </div>
-
-                  <h3 className="font-bold text-gray-900 mb-2">{programme.name}</h3>
-                  <p className="text-sm text-gray-600 mb-3 line-clamp-2">{programme.match_reason}</p>
-                  
-                  <div className="space-y-2">
-                    {programme.requirements && programme.requirements.length > 0 && (
-                      <div className="text-xs text-gray-500">
-                        <strong>Key Requirements:</strong> {programme.requirements.slice(0, 2).join(', ')}
-                      </div>
-                    )}
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="radio"
-                        name="programmeSelection"
-                        checked={selectedProgramme?.id === programme.id}
-                        onChange={() => setSelectedProgramme(programme)}
-                        className="w-4 h-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded"
-                      />
-                      <span className="text-sm text-purple-600 font-medium">Select this programme</span>
-                    </div>
-                  </div>
+                    );
+                  })}
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
 
-        {/* Programmes Table Section */}
-        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-4">
-                <h2 className="text-lg font-semibold text-gray-900">
-                  {showOnlyRecommended ? 'AI-Matched Programmes' : 'All Available Programmes'}
-                </h2>
-                {recommendedProgrammes.length > 0 && (
-                  <div className="flex items-center space-x-2">
-                    <Filter className="w-4 h-4 text-gray-400" />
+                {/* Progress Indicator */}
+                <div className="mb-8 bg-gray-50 rounded-lg p-4 border border-gray-200">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-gray-700">Selection Progress</span>
+                    <span className="text-sm font-semibold text-green-700">
+                      {choices.filter(c => c.programme).length}/6 Completed
+                    </span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                    <div 
+                      className="bg-green-600 h-2 rounded-full transition-all duration-500"
+                      style={{ width: `${(choices.filter(c => c.programme).length / 6) * 100}%` }}
+                    />
+                  </div>
+                  {!areAllChoicesFilled && (
+                    <p className="text-xs text-gray-500 mt-2">
+                      You need to select {6 - choices.filter(c => c.programme).length} more programme(s)
+                    </p>
+                  )}
+                </div>
+
+                {/* Action Section */}
+                {savedChoices.length === 0 ? (
+                  <div className="pt-4 border-t border-gray-200">
+                    <div className="flex justify-end">
+                      <button
+                        onClick={handleSaveChoices}
+                        disabled={saving || !canProceed}
+                        className={`px-6 py-2.5 rounded-lg text-white font-semibold transition-colors flex items-center gap-2 ${
+                          canProceed
+                            ? 'bg-green-600 hover:bg-green-700'
+                            : 'bg-gray-400 cursor-not-allowed'
+                        }`}
+                      >
+                        {saving ? (
+                          <>
+                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                            Saving...
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle className="w-4 h-4" />
+                            Save & Continue
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-green-50 border-2 border-green-500 rounded-lg p-6 text-center">
+                    <CheckCircle className="w-12 h-12 text-green-600 mx-auto mb-3" />
+                    <h3 className="text-lg font-bold text-gray-800 mb-1">Choices Saved!</h3>
+                    <p className="text-gray-600 text-sm mb-4">
+                      Your programme preferences have been saved successfully.
+                    </p>
                     <button
-                      onClick={() => setShowOnlyRecommended(!showOnlyRecommended)}
-                      className={`px-3 py-1 text-sm font-medium rounded-full transition-all duration-200 ${
-                        showOnlyRecommended 
-                          ? 'bg-purple-100 text-purple-700 border border-purple-200' 
-                          : 'bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200'
-                      }`}
+                      onClick={() => router.push("/application/documents")}
+                      className="bg-green-600 hover:bg-green-700 text-white font-semibold px-5 py-2 rounded-lg transition-colors"
                     >
-                      {showOnlyRecommended ? 'AI Matched Only' : 'Show All'}
+                      Continue to Documents
                     </button>
                   </div>
                 )}
-              </div>
-              <div className="flex items-center space-x-4">
-                {recommendedProgrammes.length > 0 && (
-                  <button
-                    onClick={() => setShowRecommended(!showRecommended)}
-                    className="text-sm text-purple-600 hover:text-purple-700 font-medium"
-                  >
-                    {showRecommended ? 'Hide Recommendations' : 'Show Recommendations'}
-                  </button>
-                )}
-                <span className="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
-                  {getDisplayProgrammes().length} programme{getDisplayProgrammes().length !== 1 ? 's' : ''}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {loading ? (
-            <div className="p-8 text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto mb-4"></div>
-              <p className="text-gray-600">Loading programmes...</p>
-            </div>
-          ) : getDisplayProgrammes().length === 0 ? (
-            <div className="p-12 text-center">
-              <BookOpen className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                {showOnlyRecommended ? 'No AI recommendations available' : 'No programmes available'}
-              </h3>
-              <p className="text-gray-500 mb-4">
-                {showOnlyRecommended 
-                  ? 'Try refreshing recommendations or view all programmes.' 
-                  : 'Please check back later for available programmes.'
-                }
-              </p>
-              {showOnlyRecommended && (
-                <button
-                  onClick={() => setShowOnlyRecommended(false)}
-                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-                >
-                  View All Programmes
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-gradient-to-r from-green-600 to-green-700 text-white">
-                    <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider">Select</th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider">Programme Name</th>
-                    {showOnlyRecommended && (
-                      <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider">Match Score</th>
-                    )}
-                    <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider">Department</th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider">Duration</th>
-                    {showOnlyRecommended && (
-                      <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider">Why It Matches</th>
-                    )}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {getDisplayProgrammes().map((prog) => (
-                    <tr 
-                      key={prog.id} 
-                      className={`hover:bg-green-50/50 transition-all duration-200 group cursor-pointer ${
-                        selectedProgramme?.id === prog.id ? 'bg-green-50 border-l-4 border-l-green-500' : ''
-                      } ${
-                        (prog as RecommendedProgramme).is_recommended ? 'bg-blue-50/30 hover:bg-blue-50/50' : ''
-                      }`}
-                      onClick={() => setSelectedProgramme(prog)}
-                    >
-                      <td className="px-6 py-4">
-                        <div className="flex items-center">
-                          <input
-                            type="radio"
-                            name="programmeSelection"
-                            checked={selectedProgramme?.id === prog.id}
-                            onChange={() => setSelectedProgramme(prog)}
-                            className="w-4 h-4 text-green-600 focus:ring-green-500 border-gray-300 rounded"
-                          />
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="font-medium text-gray-900 flex items-center space-x-2">
-                          <span>{prog.name}</span>
-                          {(prog as RecommendedProgramme).is_recommended && (
-                            <span className="px-2 py-1 bg-purple-100 text-purple-700 text-xs font-medium rounded-full">
-                              AI Recommended
-                            </span>
-                          )}
-                        </div>
-                        {prog.description && (
-                          <div className="text-sm text-gray-500 mt-1">
-                            {prog.description}
-                          </div>
-                        )}
-                      </td>
-                      {showOnlyRecommended && (
-                        <td className="px-6 py-4">
-                          {(prog as RecommendedProgramme).confidence_score ? (
-                            <div className="flex items-center space-x-2">
-                              <div className="w-16 bg-gray-200 rounded-full h-2">
-                                <div 
-                                  className="bg-green-600 h-2 rounded-full" 
-                                  style={{ width: `${(prog as RecommendedProgramme).confidence_score * 100}%` }}
-                                ></div>
-                              </div>
-                              <span className="text-sm font-medium text-gray-700">
-                                {Math.round((prog as RecommendedProgramme).confidence_score * 100)}%
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="text-sm text-gray-400">-</span>
-                          )}
-                        </td>
-                      )}
-                      <td className="px-6 py-4 text-gray-700">
-                        {prog.department || "-"}
-                      </td>
-                      <td className="px-6 py-4 text-gray-700">
-                        {prog.duration || "-"}
-                      </td>
-                      {showOnlyRecommended && (
-                        <td className="px-6 py-4">
-                          <div className="text-sm text-gray-600 max-w-xs">
-                            {(prog as RecommendedProgramme).match_reason || "No match reason available"}
-                          </div>
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* Action Section */}
-          <div className="px-6 py-4 bg-gray-50 border-t border-gray-100">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">
-                  {selectedProgramme ? (
-                    <>Selected: <span className="font-medium text-green-700">{selectedProgramme.name}</span></>
-                  ) : (
-                    "Please select a programme to continue"
-                  )}
-                </p>
-                {selectedProgramme && (selectedProgramme as RecommendedProgramme).is_recommended && (
-                  <p className="text-sm text-purple-600 mt-1">
-                    ✓ AI-recommended based on your academic profile
-                  </p>
-                )}
-              </div>
-              
-              <div className="flex space-x-3">
-                <button
-                  onClick={handleRefreshRecommendations}
-                  disabled={predicting}
-                  className="px-4 py-3 border border-purple-600 text-purple-600 font-medium rounded-lg hover:bg-purple-50 transition-all duration-200 disabled:opacity-50"
-                >
-                  {predicting ? (
-                    <div className="flex items-center space-x-2">
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-600"></div>
-                      <span>Analyzing...</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center space-x-2">
-                      <Brain className="w-4 h-4" />
-                      <span>Get AI Suggestions</span>
-                    </div>
-                  )}
-                </button>
-                
-                <button
-                  onClick={handleSaveProgramme}
-                  disabled={saving || !selectedProgramme}
-                  className="bg-green-600 hover:bg-green-700 text-white font-semibold px-8 py-3 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {saving ? (
-                    <div className="flex items-center justify-center space-x-2">
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                      <span>Saving...</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-center space-x-2">
-                      <CheckCircle className="w-5 h-5" />
-                      <span>Continue to Documents</span>
-                    </div>
-                  )}
-                </button>
-              </div>
-            </div>
+              </>
+            )}
           </div>
         </div>
       </div>
