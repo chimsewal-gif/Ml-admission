@@ -23,6 +23,9 @@ import {
   GraduationCap,
   Award,
   University,
+  Clock,
+  Users,
+  ChevronDown,
 } from 'lucide-react';
 import { MZUNI_PROGRAMMES, ProgrammeData, getProgrammesCount } from '@/constants/programmesData';
 
@@ -37,8 +40,22 @@ interface Programme {
   category: string;
   code: string;
   is_active: boolean;
+  programme_type?: string;
+  study_mode?: string;
+  school?: string;
   created_at?: string;
   updated_at?: string;
+}
+
+interface DisplayProgramme {
+  id: number;
+  name: string;
+  department: string;
+  study_mode: string;
+  programme_type: string;
+  duration: string;
+  original_id: number;
+  is_active: boolean;
 }
 
 export default function ProgrammesListPage() {
@@ -49,7 +66,8 @@ export default function ProgrammesListPage() {
   const [importError, setImportError] = useState('');
   const [importSuccess, setImportSuccess] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterCategory, setFilterCategory] = useState('all');
+  const [filterStudyMode, setFilterStudyMode] = useState('all');
+  const [filterProgrammeType, setFilterProgrammeType] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const router = useRouter();
@@ -100,7 +118,6 @@ export default function ProgrammesListPage() {
       }
 
       const data = await response.json();
-      console.log('Programmes response:', data);
 
       let programmesList: Programme[] = [];
       if (data && data.success && Array.isArray(data.data)) {
@@ -112,7 +129,6 @@ export default function ProgrammesListPage() {
       } else if (data && data.results && Array.isArray(data.results)) {
         programmesList = data.results;
       } else {
-        console.error('Unexpected response format:', data);
         programmesList = [];
       }
 
@@ -123,6 +139,63 @@ export default function ProgrammesListPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const getDisplayProgrammes = (): DisplayProgramme[] => {
+    const displayList: DisplayProgramme[] = [];
+    
+    programmes.forEach(prog => {
+      const programmeName = prog.name;
+      const department = prog.school || prog.department || 'Education';
+      
+      let studyMode = prog.study_mode || '';
+      if (!studyMode) {
+        if (prog.category === 'odl') {
+          studyMode = 'odel';
+        } else if (prog.programme_type === 'upgrading') {
+          studyMode = 'weekend';
+        } else {
+          studyMode = 'full time';
+        }
+      }
+      
+      let programmeType = prog.programme_type || '';
+      if (!programmeType) {
+        if (prog.category === 'upgrading') {
+          programmeType = 'upgrading';
+        } else if (prog.category === 'odl') {
+          programmeType = 'upgrading';
+        } else if (prog.category === 'postgraduate') {
+          programmeType = 'non-generic';
+        } else {
+          programmeType = 'upgrading';
+        }
+      }
+      
+      let duration = prog.duration || '';
+      if (!duration) {
+        if (programmeType === 'upgrading') {
+          duration = '2-3 years';
+        } else if (programmeType === 'non-generic') {
+          duration = '2 years';
+        } else {
+          duration = '4 years';
+        }
+      }
+      
+      displayList.push({
+        id: prog.id,
+        name: programmeName,
+        department: department,
+        study_mode: studyMode,
+        programme_type: programmeType,
+        duration: duration,
+        original_id: prog.id,
+        is_active: prog.is_active,
+      });
+    });
+    
+    return displayList;
   };
 
   const handleImportProgrammes = async () => {
@@ -234,43 +307,58 @@ export default function ProgrammesListPage() {
     }
   };
 
-  const getCategoryBadgeColor = (category: string) => {
-    switch (category?.toLowerCase()) {
-      case 'undergraduate':
-        return 'bg-blue-100 text-blue-800';
-      case 'postgraduate':
-        return 'bg-purple-100 text-purple-800';
-      case 'diploma':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'certificate':
-        return 'bg-green-100 text-green-800';
-      case 'upgrading':
-        return 'bg-orange-100 text-orange-800';
-      case 'odl':
-        return 'bg-indigo-100 text-indigo-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
+  const handleApply = (programme: DisplayProgramme) => {
+    router.push(`/apply?programme=${encodeURIComponent(programme.name)}&study_mode=${programme.study_mode}&type=${programme.programme_type}`);
   };
 
-  const filteredProgrammes = programmes.filter(prog => {
+  const displayProgrammes = getDisplayProgrammes();
+  
+  const filteredProgrammes = displayProgrammes.filter(prog => {
     const matchesSearch = 
       prog.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      prog.code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       prog.department?.toLowerCase().includes(searchTerm.toLowerCase());
     
-    const matchesCategory = filterCategory === 'all' || prog.category?.toLowerCase() === filterCategory;
+    const matchesStudyMode = filterStudyMode === 'all' || prog.study_mode?.toLowerCase() === filterStudyMode.toLowerCase();
+    const matchesProgrammeType = filterProgrammeType === 'all' || prog.programme_type?.toLowerCase() === filterProgrammeType.toLowerCase();
     
-    return matchesSearch && matchesCategory;
+    return matchesSearch && matchesStudyMode && matchesProgrammeType;
   });
 
-  // Pagination
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
   const currentItems = filteredProgrammes.slice(indexOfFirstItem, indexOfLastItem);
   const totalPages = Math.ceil(filteredProgrammes.length / itemsPerPage);
 
-  const stats = getProgrammesCount();
+  const uniqueStudyModes = Array.from(new Set(displayProgrammes.map(p => p.study_mode))).filter(Boolean);
+  const uniqueProgrammeTypes = Array.from(new Set(displayProgrammes.map(p => p.programme_type))).filter(Boolean);
+
+  const getStudyModeBadgeStyle = (mode: string) => {
+    switch (mode?.toLowerCase()) {
+      case 'full time':
+        return 'bg-blue-100 text-blue-700 border border-blue-200';
+      case 'odel':
+        return 'bg-purple-100 text-purple-700 border border-purple-200';
+      case 'weekend':
+        return 'bg-green-100 text-green-700 border border-green-200';
+      case 'evening':
+        return 'bg-yellow-100 text-yellow-700 border border-yellow-200';
+      default:
+        return 'bg-gray-100 text-gray-700 border border-gray-200';
+    }
+  };
+
+  const getProgrammeTypeBadgeStyle = (type: string) => {
+    switch (type?.toLowerCase()) {
+      case 'upgrading':
+        return 'bg-orange-100 text-orange-700 border border-orange-200';
+      case 'non-generic':
+        return 'bg-red-100 text-red-700 border border-red-200';
+      case 'generic':
+        return 'bg-teal-100 text-teal-700 border border-teal-200';
+      default:
+        return 'bg-gray-100 text-gray-700 border border-gray-200';
+    }
+  };
 
   if (loading) {
     return (
@@ -285,39 +373,7 @@ export default function ProgrammesListPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-green-700 to-green-800 text-white">
-        <div className="max-w-7xl mx-auto px-6 py-8">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold mb-2">Programmes</h1>
-              <p className="text-green-100">Manage academic programmes from Mzuzu University prospectus</p>
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={handleImportProgrammes}
-                disabled={importing}
-                className="flex items-center gap-2 px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition-colors disabled:opacity-50"
-              >
-                {importing ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Upload className="w-4 h-4" />
-                )}
-                <span>{importing ? 'Importing...' : 'Import'}</span>
-              </button>
-              <button
-                onClick={handleAddProgramme}
-                className="flex items-center gap-2 px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Add Programme</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
+      
       <div className="max-w-7xl mx-auto px-6 py-8">
         {/* Alerts */}
         {importError && (
@@ -350,28 +406,27 @@ export default function ProgrammesListPage() {
           </div>
         )}
 
-        {/* Stats Summary */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-          <div className="bg-white rounded-lg p-4 shadow-sm border border-gray-200">
-            <p className="text-xs text-gray-500 uppercase">Total Programmes</p>
-            <p className="text-2xl font-bold text-gray-800">{programmes.length}</p>
-          </div>
-          <div className="bg-white rounded-lg p-4 shadow-sm border border-gray-200">
-            <p className="text-xs text-gray-500 uppercase">Undergraduate</p>
-            <p className="text-2xl font-bold text-blue-600">{programmes.filter(p => p.category === 'undergraduate').length}</p>
-          </div>
-          <div className="bg-white rounded-lg p-4 shadow-sm border border-gray-200">
-            <p className="text-xs text-gray-500 uppercase">Upgrading</p>
-            <p className="text-2xl font-bold text-orange-600">{programmes.filter(p => p.category === 'upgrading').length}</p>
-          </div>
-          <div className="bg-white rounded-lg p-4 shadow-sm border border-gray-200">
-            <p className="text-xs text-gray-500 uppercase">ODeL</p>
-            <p className="text-2xl font-bold text-indigo-600">{programmes.filter(p => p.category === 'odl').length}</p>
-          </div>
-          <div className="bg-white rounded-lg p-4 shadow-sm border border-gray-200">
-            <p className="text-xs text-gray-500 uppercase">Certificate</p>
-            <p className="text-2xl font-bold text-green-600">{programmes.filter(p => p.category === 'certificate').length}</p>
-          </div>
+        {/* Admin Action Buttons */}
+        <div className="mb-6 flex gap-3">
+          <button
+            onClick={handleImportProgrammes}
+            disabled={importing}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors disabled:opacity-50 text-sm"
+          >
+            {importing ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Upload className="w-4 h-4" />
+            )}
+            <span>{importing ? 'Importing...' : 'Import Programmes'}</span>
+          </button>
+          <button
+            onClick={handleAddProgramme}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Programme</span>
+          </button>
         </div>
 
         {/* Filters and Search */}
@@ -381,26 +436,37 @@ export default function ProgrammesListPage() {
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
                 type="text"
-                placeholder="Search programmes by name, code, or department..."
+                placeholder="Search programmes..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
               />
             </div>
             
-            <div className="flex items-center gap-4">
+            <div className="flex flex-wrap gap-4">
               <div className="flex items-center gap-2">
                 <Filter className="w-4 h-4 text-gray-400" />
                 <select
-                  value={filterCategory}
-                  onChange={(e) => setFilterCategory(e.target.value)}
+                  value={filterStudyMode}
+                  onChange={(e) => setFilterStudyMode(e.target.value)}
                   className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white"
                 >
-                  <option value="all">All Categories</option>
-                  <option value="undergraduate">Undergraduate</option>
-                  <option value="upgrading">Upgrading</option>
-                  <option value="odl">ODeL</option>
-                  <option value="certificate">Certificate</option>
+                  <option value="all">All Study Modes</option>
+                  {uniqueStudyModes.map(mode => (
+                    <option key={mode} value={mode}>{mode}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <select
+                  value={filterProgrammeType}
+                  onChange={(e) => setFilterProgrammeType(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white"
+                >
+                  <option value="all">All Programme Types</option>
+                  {uniqueProgrammeTypes.map(type => (
+                    <option key={type} value={type}>{type}</option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -413,69 +479,72 @@ export default function ProgrammesListPage() {
             <table className="w-full">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Programme Name</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Department</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Duration</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Category</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">PROGRAMME</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">TYPE</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">DURATION</th>
+                  <th className="px-6 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">ACTIONS</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {currentItems.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-12 text-center">
+                    <td colSpan={4} className="px-6 py-12 text-center">
                       <div className="flex flex-col items-center justify-center">
                         <BookOpen className="w-12 h-12 text-gray-300 mb-4" />
                         <p className="text-gray-500 text-lg font-medium">No programmes found</p>
                         <p className="text-gray-400 text-sm mt-1">
-                          {searchTerm || filterCategory !== 'all' 
+                          {searchTerm || filterStudyMode !== 'all' || filterProgrammeType !== 'all'
                             ? 'Try adjusting your search or filters' 
-                            : 'Click "Import" to load programmes from prospectus'}
+                            : 'No programmes available'}
                         </p>
                       </div>
                     </td>
                   </tr>
                 ) : (
-                  currentItems.map((prog) => (
-                    <tr key={prog.id} className="hover:bg-gray-50 transition-colors">
+                  currentItems.map((prog, idx) => (
+                    <tr key={`${prog.id}-${idx}`} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4">
                         <div>
                           <p className="font-medium text-gray-900">{prog.name}</p>
-                          <p className="text-xs text-gray-500 mt-1">{prog.code}</p>
+                          <p className="text-xs text-gray-500 mt-0.5">{prog.department}</p>
                         </div>
-                       </td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{prog.department || 'Not Assigned'}</td>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-row items-center gap-2 flex-wrap">
+                          <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStudyModeBadgeStyle(prog.study_mode)}`}>
+                            {prog.study_mode}
+                          </span>
+                          <span className="text-gray-300 text-xs">|</span>
+                          <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getProgrammeTypeBadgeStyle(prog.programme_type)}`}>
+                            {prog.programme_type}
+                          </span>
+                        </div>
+                      </td>
                       <td className="px-6 py-4 text-sm text-gray-600">{prog.duration}</td>
-                      <td className="px-6 py-4">
-                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getCategoryBadgeColor(prog.category)}`}>
-                          {prog.category?.toUpperCase() || 'N/A'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className={`inline-flex items-center gap-1 text-xs font-medium ${prog.is_active ? 'text-green-600' : 'text-red-600'}`}>
-                          {prog.is_active ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
-                          {prog.is_active ? 'Active' : 'Inactive'}
-                        </span>
-                      </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center justify-center gap-2">
                           <button
-                            onClick={() => handleViewProgramme(prog.id)}
+                            onClick={() => handleApply(prog)}
+                            className="px-4 py-1.5 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-md transition-colors shadow-sm"
+                          >
+                            Apply
+                          </button>
+                          <button
+                            onClick={() => handleViewProgramme(prog.original_id)}
                             className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                             title="View"
                           >
                             <Eye className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => handleEditProgramme(prog.id)}
+                            onClick={() => handleEditProgramme(prog.original_id)}
                             className="p-1.5 text-yellow-600 hover:bg-yellow-50 rounded-lg transition-colors"
                             title="Edit"
                           >
                             <Edit className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => handleDeleteProgramme(prog.id, prog.name)}
+                            onClick={() => handleDeleteProgramme(prog.original_id, prog.name)}
                             className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                             title="Delete"
                           >

@@ -1,7 +1,7 @@
 // app/application-fees/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   CreditCard, 
@@ -14,10 +14,31 @@ import {
   Loader2,
   Banknote,
   Receipt,
-  Download
+  Download,
+  Scan,
+  Shield,
+  Eye,
+  X,
+  Check,
+  AlertTriangle,
+  FileWarning
 } from 'lucide-react';
 
 const API_BASE_URL = 'http://127.0.0.1:8000/api';
+
+interface DocumentClassificationResult {
+  success: boolean;
+  document_type: string;
+  confidence: number;
+  is_valid: boolean;
+  extracted_preview?: {
+    has_reference: boolean;
+    has_amount: boolean;
+    has_bank: boolean;
+  };
+  message?: string;
+  error?: string;
+}
 
 export default function ApplicationFeesPage() {
   const router = useRouter();
@@ -34,6 +55,15 @@ export default function ApplicationFeesPage() {
   const [depositSlip, setDepositSlip] = useState<File | null>(null);
   const [submissionStatus, setSubmissionStatus] = useState<'pending' | 'submitted' | 'verified' | 'rejected' | null>(null);
   const [existingFile, setExistingFile] = useState<string | null>(null);
+  
+  // Document classification state
+  const [classifying, setClassifying] = useState(false);
+  const [classificationResult, setClassificationResult] = useState<DocumentClassificationResult | null>(null);
+  const [showClassificationResults, setShowClassificationResults] = useState(false);
+  
+  // Warning Modal State
+  const [showWarningModal, setShowWarningModal] = useState(false);
+  const [warningMessage, setWarningMessage] = useState('');
   
   // Fee amounts based on program type
   const [programType, setProgramType] = useState<string>('undergraduate');
@@ -115,27 +145,102 @@ export default function ApplicationFeesPage() {
     }
   };
 
+  // Classify document using ML endpoint
+  const classifyDocument = async (file: File) => {
+    setClassifying(true);
+    setClassificationResult(null);
+    setShowClassificationResults(false);
+    
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await fetch(`${API_BASE_URL}/ml/classify-document/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        body: formData,
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok && data.success) {
+        setClassificationResult(data);
+        setShowClassificationResults(true);
+        
+        if (data.document_type === 'deposit_slip' && data.is_valid && data.confidence >= 0.6) {
+          setSuccess(`✓ Valid deposit slip detected! Confidence: ${(data.confidence * 100).toFixed(1)}%`);
+          setTimeout(() => setSuccess(null), 5000);
+        } else if (data.document_type === 'deposit_slip' && data.confidence < 0.6) {
+          setWarningMessage(
+            "The uploaded file may not be a valid bank deposit slip. " +
+            "Please ensure you upload a clear image or PDF of your bank deposit slip."
+          );
+          setShowWarningModal(true);
+        } else {
+          setWarningMessage(
+            `Document classified as "${data.document_type}" (${(data.confidence * 100).toFixed(1)}% confidence).\n\n` +
+            "Please upload a valid bank deposit slip showing:\n" +
+            "• Bank name and logo\n" +
+            "• Deposit reference number\n" +
+            "• Amount paid\n" +
+            "• Date of transaction"
+          );
+          setShowWarningModal(true);
+          setDepositSlip(null);
+          const fileInput = document.getElementById('deposit-slip') as HTMLInputElement;
+          if (fileInput) fileInput.value = '';
+        }
+      } else {
+        setWarningMessage(
+          "We couldn't verify this document. Please upload a clear image or PDF of your bank deposit slip."
+        );
+        setShowWarningModal(true);
+        setDepositSlip(null);
+        const fileInput = document.getElementById('deposit-slip') as HTMLInputElement;
+        if (fileInput) fileInput.value = '';
+      }
+    } catch (err) {
+      console.error('Error classifying document:', err);
+      setWarningMessage(
+        "An error occurred while validating your document. " +
+        "Please ensure the file is not corrupted and try again."
+      );
+      setShowWarningModal(true);
+      setDepositSlip(null);
+      const fileInput = document.getElementById('deposit-slip') as HTMLInputElement;
+      if (fileInput) fileInput.value = '';
+    } finally {
+      setClassifying(false);
+    }
+  };
+
   // Handle file selection
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       
       // Validate file type
-      if (file.type !== 'application/pdf') {
-        setError('Only PDF files are allowed');
+      const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'];
+      if (!allowedTypes.includes(file.type)) {
+        setError('Only PDF, JPEG, or PNG files are allowed');
         e.target.value = '';
         return;
       }
       
-      // Validate file size (2MB)
-      if (file.size > 2 * 1024 * 1024) {
-        setError('File size must be less than 2MB');
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        setError('File size must be less than 5MB');
         e.target.value = '';
         return;
       }
       
       setDepositSlip(file);
       setError(null);
+      
+      // Classify the document
+      await classifyDocument(file);
     }
   };
 
@@ -174,6 +279,12 @@ export default function ApplicationFeesPage() {
       formData.append('reference_number', depositReference);
       formData.append('amount', amountPaid);
       
+      // Include classification data if available
+      if (classificationResult) {
+        formData.append('document_type', classificationResult.document_type);
+        formData.append('classification_confidence', classificationResult.confidence.toString());
+      }
+      
       const response = await fetch(`${API_BASE_URL}/application-fees/`, {
         method: 'POST',
         headers: {
@@ -190,6 +301,8 @@ export default function ApplicationFeesPage() {
         setDepositReference('');
         setAmountPaid('');
         setDepositSlip(null);
+        setClassificationResult(null);
+        setShowClassificationResults(false);
         // Reset file input
         const fileInput = document.getElementById('deposit-slip') as HTMLInputElement;
         if (fileInput) fileInput.value = '';
@@ -218,6 +331,51 @@ export default function ApplicationFeesPage() {
     }
   };
 
+  // Warning Modal Component
+  const WarningModal = () => {
+    if (!showWarningModal) return null;
+    
+    return (
+      <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-xl max-w-md w-full shadow-xl">
+          <div className="p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                <FileWarning className="w-6 h-6 text-red-600" />
+              </div>
+              <h3 className="text-xl font-semibold text-gray-800">Document Notice</h3>
+            </div>
+            
+            <div className="mb-6">
+              <p className="text-gray-700 whitespace-pre-line">{warningMessage}</p>
+            </div>
+            
+            <div className="bg-amber-50 border-l-4 border-amber-500 p-3 mb-6 rounded">
+              <p className="text-sm text-amber-800 font-medium mb-2">What should be on your deposit slip:</p>
+              <ul className="text-sm text-amber-700 space-y-1 ml-4">
+                <li>• Bank name and logo</li>
+                <li>• Deposit reference number</li>
+                <li>• Amount paid (MWK)</li>
+                <li>• Transaction date</li>
+                <li>• Account number</li>
+              </ul>
+            </div>
+            
+            <button
+              onClick={() => {
+                setShowWarningModal(false);
+                setWarningMessage('');
+              }}
+              className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
+            >
+              OK, I Understand
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -231,20 +389,27 @@ export default function ApplicationFeesPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
+      <WarningModal />
+      
       <div className="max-w-4xl mx-auto px-4">
         <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
           {/* Header */}
           <div className="border-b border-gray-200 p-6">
-            <div className="flex items-center gap-3 mb-2">
-              <Banknote className="w-6 h-6 text-gray-700" />
-              <h2 className="text-xl font-semibold text-gray-800">APPLICATION FEE</h2>
+            <div className="flex items-center justify-between flex-wrap gap-3 mb-2">
+              <div className="flex items-center gap-3">
+                <Banknote className="w-6 h-6 text-gray-700" />
+                <h2 className="text-xl font-semibold text-gray-800">APPLICATION FEE</h2>
+              </div>
+              <div className="flex items-center gap-2 bg-gradient-to-r from-purple-50 to-blue-50 px-3 py-1.5 rounded-full">
+                <Scan className="w-4 h-4 text-purple-600" />
+                <span className="text-xs font-medium text-purple-700">Document Classification</span>
+              </div>
             </div>
             <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-r-lg mt-3">
               <p className="text-sm text-gray-700">
                 All applicants are required to pay a non-refundable application fee. 
                 <span className="font-semibold"> Undergraduate applicants must pay MWK 25,000</span>, while 
-                <span className="font-semibold"> postgraduate applicants must pay MWK 40,000</span>. 
-                Ensure the amount paid is correct and that your deposit reference number matches your payment proof.
+                <span className="font-semibold"> postgraduate applicants must pay MWK 40,000</span>.
               </p>
             </div>
           </div>
@@ -262,6 +427,85 @@ export default function ApplicationFeesPage() {
               <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-start gap-3">
                 <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
                 <p className="text-sm text-green-700">{success}</p>
+              </div>
+            )}
+
+            {/* Classification Results */}
+            {showClassificationResults && classificationResult && (
+              <div className="mb-6 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-5 relative">
+                <button
+                  onClick={() => setShowClassificationResults(false)}
+                  className="absolute top-3 right-3 text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+                
+                <div className="flex items-start gap-4">
+                  <div className="flex-shrink-0">
+                    {classificationResult.is_valid && classificationResult.confidence >= 0.6 ? (
+                      <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                        <Check className="w-6 h-6 text-green-600" />
+                      </div>
+                    ) : (
+                      <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center">
+                        <AlertTriangle className="w-6 h-6 text-yellow-600" />
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+                      <h3 className="font-semibold text-gray-800">
+                        Document Classification Result
+                      </h3>
+                      {classificationResult.is_valid && classificationResult.confidence >= 0.6 ? (
+                        <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full flex items-center gap-1">
+                          <CheckCircle className="w-3 h-3" />
+                          Valid
+                        </span>
+                      ) : (
+                        <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded-full flex items-center gap-1">
+                          <AlertTriangle className="w-3 h-3" />
+                          Review Recommended
+                        </span>
+                      )}
+                    </div>
+                    
+                    <div className="space-y-3 text-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-600 w-32">Document Type:</span>
+                        <span className="font-medium text-gray-800">{classificationResult.document_type}</span>
+                      </div>
+                      
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-600 w-32">Confidence:</span>
+                        <div className="flex-1">
+                          <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                            <div 
+                              className={`h-full rounded-full ${
+                                classificationResult.confidence > 0.7 ? 'bg-green-500' :
+                                classificationResult.confidence > 0.4 ? 'bg-yellow-500' : 'bg-red-500'
+                              }`}
+                              style={{ width: `${classificationResult.confidence * 100}%` }}
+                            />
+                          </div>
+                          <span className="text-xs mt-1 block">
+                            {(classificationResult.confidence * 100).toFixed(1)}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="mt-4">
+                      <button
+                        onClick={() => setShowClassificationResults(false)}
+                        className="text-sm border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -324,7 +568,8 @@ export default function ApplicationFeesPage() {
                       className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
                     />
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
+                    <Shield className="w-3 h-3" />
                     Enter the reference number from your bank deposit slip
                   </p>
                 </div>
@@ -354,48 +599,70 @@ export default function ApplicationFeesPage() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Upload Bank Deposit Slip <span className="text-red-500">*</span>
                   </label>
-                  <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg hover:border-green-400 transition-colors">
+                  <div className={`mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-dashed rounded-lg ${
+                    classifying 
+                      ? 'border-purple-400 bg-purple-50' 
+                      : classificationResult && classificationResult.is_valid
+                        ? 'border-green-400 bg-green-50'
+                        : 'border-gray-300 hover:border-green-400 hover:bg-green-50'
+                  }`}>
                     <div className="space-y-2 text-center">
-                      <Upload className="mx-auto h-10 w-10 text-gray-400" />
-                      <div className="flex text-sm text-gray-600">
-                        <label
-                          htmlFor="deposit-slip"
-                          className="relative cursor-pointer rounded-md font-medium text-green-600 hover:text-green-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-green-500"
-                        >
-                          <span>Upload a file</span>
-                          <input
-                            id="deposit-slip"
-                            name="deposit-slip"
-                            type="file"
-                            accept=".pdf"
-                            onChange={handleFileChange}
-                            className="sr-only"
-                          />
-                        </label>
-                        <p className="pl-1">or drag and drop</p>
-                      </div>
-                      <p className="text-xs text-gray-500">
-                        PDF files only, max size 2MB
-                      </p>
-                      {depositSlip && (
-                        <div className="mt-3 p-2 bg-green-50 rounded-lg flex items-center justify-center gap-2">
-                          <FileText className="w-4 h-4 text-green-600" />
-                          <span className="text-sm text-green-700">{depositSlip.name}</span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setDepositSlip(null);
-                              const input = document.getElementById('deposit-slip') as HTMLInputElement;
-                              if (input) input.value = '';
-                            }}
-                            className="text-red-500 hover:text-red-700 text-xs"
-                          >
-                            Remove
-                          </button>
+                      {classifying ? (
+                        <div className="text-center">
+                          <Loader2 className="mx-auto h-12 w-12 text-purple-600 animate-spin" />
+                          <p className="text-sm text-purple-600 mt-3 font-medium">Analyzing document...</p>
+                          <p className="text-xs text-purple-500 mt-1">Classifying document type</p>
                         </div>
+                      ) : (
+                        <>
+                          <Upload className={`mx-auto h-10 w-10 ${classificationResult && classificationResult.is_valid ? 'text-green-500' : 'text-gray-400'}`} />
+                          <div className="flex text-sm text-gray-600">
+                            <label
+                              htmlFor="deposit-slip"
+                              className="relative cursor-pointer rounded-md font-medium text-green-600 hover:text-green-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-green-500"
+                            >
+                              <span>Upload a file</span>
+                              <input
+                                id="deposit-slip"
+                                name="deposit-slip"
+                                type="file"
+                                accept=".pdf,.jpg,.jpeg,.png"
+                                onChange={handleFileChange}
+                                className="sr-only"
+                              />
+                            </label>
+                            <p className="pl-1">or drag and drop</p>
+                          </div>
+                          <p className="text-xs text-gray-500">
+                            PDF, JPG, or PNG files, max size 5MB
+                          </p>
+                          {depositSlip && (
+                            <div className="mt-3 p-2 bg-green-50 rounded-lg flex items-center justify-center gap-2">
+                              <FileText className="w-4 h-4 text-green-600" />
+                              <span className="text-sm text-green-700">{depositSlip.name}</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDepositSlip(null);
+                                  setClassificationResult(null);
+                                  setShowClassificationResults(false);
+                                  const input = document.getElementById('deposit-slip') as HTMLInputElement;
+                                  if (input) input.value = '';
+                                }}
+                                className="text-red-500 hover:text-red-700 text-xs font-medium"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>
+                  <p className="text-xs text-gray-500 mt-2 flex items-center gap-1">
+                    <Scan className="w-3 h-3 text-purple-500" />
+                    Our AI will classify your document to ensure it's a valid bank deposit slip
+                  </p>
                 </div>
 
                 {/* Bank Account Details */}
@@ -427,8 +694,8 @@ export default function ApplicationFeesPage() {
                 {/* Submit Button */}
                 <button
                   type="submit"
-                  disabled={submitting}
-                  className="w-full py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={submitting || classifying || !depositSlip}
+                  className="w-full py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:from-green-700 hover:to-emerald-700 flex items-center justify-center gap-2 font-medium disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
                 >
                   {submitting ? (
                     <>
@@ -439,6 +706,11 @@ export default function ApplicationFeesPage() {
                     <>
                       <Upload className="w-5 h-5" />
                       Submit Application Fee
+                      {classificationResult?.is_valid && classificationResult.confidence >= 0.6 && (
+                        <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full ml-2">
+                          Verified
+                        </span>
+                      )}
                     </>
                   )}
                 </button>
@@ -449,7 +721,7 @@ export default function ApplicationFeesPage() {
             <div className={`mt-8 pt-6 border-t border-gray-200 flex justify-between ${submissionStatus === 'verified' ? '' : 'flex-row-reverse'}`}>
               <button
                 onClick={handleBack}
-                className="px-6 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2 font-medium"
+                className="px-6 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 flex items-center gap-2 font-medium"
               >
                 <ChevronLeft className="w-4 h-4" />
                 Back
@@ -458,7 +730,7 @@ export default function ApplicationFeesPage() {
               {submissionStatus === 'verified' && (
                 <button
                   onClick={handleContinue}
-                  className="px-6 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 font-medium"
+                  className="px-6 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 font-medium"
                 >
                   Continue
                   <ArrowRight className="w-4 h-4" />

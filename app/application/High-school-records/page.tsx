@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { FileText, Plus, Trash2, Edit3, Save, ArrowRight, AlertCircle, CheckCircle, X } from 'lucide-react';
+import { FileText, Plus, Trash2, Edit3, Save, ArrowRight, AlertCircle, CheckCircle, X, Sparkles, Brain, TrendingUp, Shield, Loader2 } from 'lucide-react';
 
 const API_BASE_URL = 'http://127.0.0.1:8000/api';
 
@@ -14,6 +14,15 @@ interface SubjectRecord {
   subject: string;
   grade: string;
   year: string;
+}
+
+interface MLPrediction {
+  success: boolean;
+  average_points: number;
+  prediction: number;
+  probability: number;
+  message: string;
+  using_ml: boolean;
 }
 
 // Fixed to MSCE only
@@ -50,7 +59,7 @@ const MSCE_GRADES = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'U'];
 interface Toast {
   id: number;
   message: string;
-  type: 'success' | 'error';
+  type: 'success' | 'error' | 'info';
 }
 
 export default function MSCEResultsPage() {
@@ -65,6 +74,12 @@ export default function MSCEResultsPage() {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   
+  // ML Prediction state
+  const [isPredicting, setIsPredicting] = useState(false);
+  const [mlPrediction, setMlPrediction] = useState<MLPrediction | null>(null);
+  const [showPrediction, setShowPrediction] = useState(false);
+  const [autoPredictEnabled, setAutoPredictEnabled] = useState(true);
+  
   // Modal states
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -78,7 +93,7 @@ export default function MSCEResultsPage() {
   });
 
   // Add toast notification
-  const addToast = (message: string, type: 'success' | 'error') => {
+  const addToast = (message: string, type: 'success' | 'error' | 'info') => {
     const id = Date.now();
     setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => {
@@ -98,6 +113,12 @@ export default function MSCEResultsPage() {
       return;
     }
     setToken(storedToken);
+    
+    // Load auto predict preference
+    const savedAutoPredict = localStorage.getItem('auto_ml_predict');
+    if (savedAutoPredict !== null) {
+      setAutoPredictEnabled(savedAutoPredict === 'true');
+    }
   }, [router]);
 
   const authFetch = async (url: string, options: RequestInit = {}) => {
@@ -133,6 +154,18 @@ export default function MSCEResultsPage() {
       fetchSubjectRecords();
     }
   }, [token]);
+
+  // Auto-predict when subjects change and we have enough subjects
+  useEffect(() => {
+    if (autoPredictEnabled && subjectRecords.length >= 6 && !isPredicting && !showPrediction) {
+      // Debounce the prediction to avoid too many API calls
+      const timer = setTimeout(() => {
+        getMLPredictionAutomatically();
+      }, 1000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [subjectRecords, autoPredictEnabled]);
 
   const fetchSubjectRecords = async () => {
     try {
@@ -199,6 +232,102 @@ export default function MSCEResultsPage() {
     });
   };
 
+  // ML Prediction function - manual trigger
+  const getMLPrediction = async () => {
+    const subjects = subjectRecords.map(record => ({
+      subject: record.subject,
+      grade: record.grade
+    }));
+
+    if (subjects.length < 6) {
+      addToast(`You need at least 6 subjects (you have ${subjects.length}) to get a prediction`, 'error');
+      return false;
+    }
+
+    setIsPredicting(true);
+    
+    try {
+      const response = await authFetch('/ml/predict/', {
+        method: 'POST',
+        body: JSON.stringify({ subjects }),
+      });
+      
+      if (response.success) {
+        setMlPrediction({
+          success: true,
+          average_points: response.average_points,
+          prediction: response.prediction,
+          probability: response.probability,
+          message: response.message,
+          using_ml: response.using_ml
+        });
+        setShowPrediction(true);
+        addToast(`Prediction complete! ${response.message}`, 'success');
+        return true;
+      } else {
+        addToast(response.error || 'Prediction failed', 'error');
+        return false;
+      }
+    } catch (err: any) {
+      console.error('Prediction error:', err);
+      addToast(err.message || 'Failed to get prediction', 'error');
+      return false;
+    } finally {
+      setIsPredicting(false);
+    }
+  };
+
+  // Auto ML Prediction - silent, no toast on success
+  const getMLPredictionAutomatically = async () => {
+    const subjects = subjectRecords.map(record => ({
+      subject: record.subject,
+      grade: record.grade
+    }));
+
+    if (subjects.length < 6) {
+      setShowPrediction(false);
+      setMlPrediction(null);
+      return;
+    }
+
+    setIsPredicting(true);
+    
+    try {
+      const response = await authFetch('/ml/predict/', {
+        method: 'POST',
+        body: JSON.stringify({ subjects }),
+      });
+      
+      if (response.success) {
+        setMlPrediction({
+          success: true,
+          average_points: response.average_points,
+          prediction: response.prediction,
+          probability: response.probability,
+          message: response.message,
+          using_ml: response.using_ml
+        });
+        setShowPrediction(true);
+      } else {
+        setShowPrediction(false);
+        setMlPrediction(null);
+      }
+    } catch (err: any) {
+      console.error('Auto prediction error:', err);
+      setShowPrediction(false);
+      setMlPrediction(null);
+    } finally {
+      setIsPredicting(false);
+    }
+  };
+
+  // Refresh prediction after data changes
+  const refreshPrediction = () => {
+    if (subjectRecords.length >= 6) {
+      getMLPredictionAutomatically();
+    }
+  };
+
   const handleAddSubject = async () => {
     const formSubject = (document.getElementById('addSubject') as HTMLSelectElement)?.value;
     const formGrade = (document.getElementById('addGrade') as HTMLSelectElement)?.value;
@@ -234,6 +363,10 @@ export default function MSCEResultsPage() {
       
       const updatedRecords = [...subjectRecords, newSubjectRecord];
       setSubjectRecords(updatedRecords);
+      
+      // Clear prediction when subjects change (will auto-recalculate)
+      setMlPrediction(null);
+      setShowPrediction(false);
       
       // Reset select values
       const subjectSelect = document.getElementById('addSubject') as HTMLSelectElement;
@@ -296,6 +429,11 @@ export default function MSCEResultsPage() {
       };
       
       setSubjectRecords(updatedRecords);
+      
+      // Clear prediction when subjects change (will auto-recalculate)
+      setMlPrediction(null);
+      setShowPrediction(false);
+      
       setShowEditModal(false);
       setEditingIndex(null);
       setEditForm({ subject: '', grade: '', id: null });
@@ -327,6 +465,11 @@ export default function MSCEResultsPage() {
       
       const updatedRecords = subjectRecords.filter((_, i) => i !== deleteIndex);
       setSubjectRecords(updatedRecords);
+      
+      // Clear prediction when subjects change (will auto-recalculate)
+      setMlPrediction(null);
+      setShowPrediction(false);
+      
       addToast('Subject removed successfully!', 'success');
     } catch (err: any) {
       console.error('Error deleting subject:', err);
@@ -343,6 +486,12 @@ export default function MSCEResultsPage() {
       addToast('Please add at least one MSCE subject result before continuing', 'error');
       return;
     }
+    
+    if (subjectRecords.length < 6) {
+      addToast(`You need at least 6 subjects to proceed. Currently you have ${subjectRecords.length}. Please add ${6 - subjectRecords.length} more subject(s).`, 'error');
+      return;
+    }
+    
     router.push('/application/teacher-subjects');
   };
 
@@ -372,6 +521,30 @@ export default function MSCEResultsPage() {
     return 'Not counted';
   };
 
+  const getPredictionColor = (prediction: number) => {
+    if (prediction >= 70) return 'text-green-600';
+    if (prediction >= 50) return 'text-yellow-600';
+    return 'text-red-600';
+  };
+
+  const getProgressBarColor = (probability: number) => {
+    if (probability >= 0.7) return 'bg-green-500';
+    if (probability >= 0.4) return 'bg-yellow-500';
+    return 'bg-red-500';
+  };
+
+  const toggleAutoPredict = () => {
+    const newValue = !autoPredictEnabled;
+    setAutoPredictEnabled(newValue);
+    localStorage.setItem('auto_ml_predict', String(newValue));
+    
+    if (newValue && subjectRecords.length >= 6) {
+      refreshPrediction();
+    }
+    
+    addToast(newValue ? 'Auto-prediction enabled' : 'Auto-prediction disabled', 'info');
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -383,6 +556,8 @@ export default function MSCEResultsPage() {
     );
   }
 
+  const hasEnoughSubjects = subjectRecords.length >= 6;
+
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-4xl mx-auto px-4">
@@ -391,21 +566,25 @@ export default function MSCEResultsPage() {
           {toasts.map((toast) => (
             <div
               key={toast.id}
-              className={`pointer-events-auto flex items-center gap-3 px-5 py-3 rounded-lg shadow-lg animate-slide-down ${
+              className={`pointer-events-auto flex items-center gap-3 px-5 py-3 rounded-lg shadow-lg ${
                 toast.type === 'success' 
                   ? 'bg-green-600 text-white' 
-                  : 'bg-red-600 text-white'
+                  : toast.type === 'error'
+                  ? 'bg-red-600 text-white'
+                  : 'bg-blue-600 text-white'
               }`}
             >
               {toast.type === 'success' ? (
                 <CheckCircle className="w-5 h-5" />
-              ) : (
+              ) : toast.type === 'error' ? (
                 <AlertCircle className="w-5 h-5" />
+              ) : (
+                <Brain className="w-5 h-5" />
               )}
               <span className="text-sm font-medium">{toast.message}</span>
               <button
                 onClick={() => removeToast(toast.id)}
-                className="ml-2 hover:opacity-80 transition-opacity"
+                className="ml-2 hover:opacity-80"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -416,22 +595,162 @@ export default function MSCEResultsPage() {
         {/* Main Card */}
         <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
           <div className="border-b border-gray-200 p-6">
-            <div className="flex items-center gap-3 mb-2">
-              <FileText className="w-6 h-6 text-gray-700" />
-              <h2 className="text-xl font-semibold text-gray-800">MSCE RESULTS</h2>
+            <div className="flex items-center justify-between flex-wrap gap-3 mb-2">
+              <div className="flex items-center gap-3">
+                <FileText className="w-6 h-6 text-gray-700" />
+                <h2 className="text-xl font-semibold text-gray-800">MSCE RESULTS</h2>
+              </div>
+              <div className="flex items-center gap-2">
+                {hasEnoughSubjects && (
+                  <div className="flex items-center gap-2 bg-purple-50 px-3 py-1.5 rounded-full">
+                    <Sparkles className="w-4 h-4 text-purple-600" />
+                    <span className="text-xs font-medium text-purple-700">ML Ready ({subjectRecords.length}/6+)</span>
+                  </div>
+                )}
+                <button
+                  onClick={toggleAutoPredict}
+                  className={`text-xs px-2 py-1 rounded-full transition-colors ${
+                    autoPredictEnabled 
+                      ? 'bg-green-100 text-green-700 hover:bg-green-200' 
+                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                  }`}
+                >
+                  {autoPredictEnabled ? '🤖 Auto-ML ON' : '🤖 Auto-ML OFF'}
+                </button>
+              </div>
             </div>
             <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-lg mt-3">
               <p className="text-sm text-gray-700">
                 Enter all MSCE results exactly as they appear on your certificate. Do not omit any subjects.
               </p>
               <p className="text-sm text-gray-600 mt-2">
-                Qualifications comparable to O-Level/IGCSE shall be interpreted as follows for purposes of admission: 
+                Qualifications comparable to O-Level/IGCSE shall be interpreted as follows: 
                 <strong> A* = 1; A = 2; B = 3; C = 5; D = 7; EFG = 8.</strong>
               </p>
             </div>
           </div>
 
           <div className="p-6">
+            {/* Auto-Prediction Status */}
+            {autoPredictEnabled && hasEnoughSubjects && (
+              <div className="mb-4 text-center">
+                <span className="text-xs text-purple-600 bg-purple-50 px-3 py-1 rounded-full inline-flex items-center gap-1">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  AI predictions update automatically as you add subjects
+                </span>
+              </div>
+            )}
+
+            {/* Warning: Not enough subjects */}
+            {!hasEnoughSubjects && subjectRecords.length > 0 && (
+              <div className="mb-6 p-4 bg-yellow-50 border-l-4 border-yellow-500 rounded-r-lg">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-yellow-800">Need More Subjects</p>
+                    <p className="text-sm text-yellow-700 mt-1">
+                      You have added {subjectRecords.length} subject(s). You need at least 6 subjects to proceed.
+                      Please add {6 - subjectRecords.length} more subject(s).
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ML Prediction Card - Shows automatically when enough subjects */}
+            {hasEnoughSubjects && showPrediction && mlPrediction && (
+              <div className="mb-6 bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-xl p-5">
+                <div className="flex items-start gap-4">
+                  <div className="flex-shrink-0">
+                    <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
+                      {isPredicting ? (
+                        <Loader2 className="w-6 h-6 text-purple-600 animate-spin" />
+                      ) : (
+                        <Brain className="w-6 h-6 text-purple-600" />
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+                      <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-purple-600" />
+                        AI Admission Prediction (Auto-Updating)
+                      </h3>
+                      <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full flex items-center gap-1">
+                        <Shield className="w-3 h-3" />
+                        ML Powered
+                      </span>
+                    </div>
+                    
+                    <div className="space-y-4">
+                      {/* Average Points */}
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-600">Average Points:</span>
+                        <span className="font-bold text-xl text-purple-700">{mlPrediction.average_points?.toFixed(2) || 'N/A'}</span>
+                      </div>
+                      
+                      {/* Success Probability */}
+                      <div>
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="text-gray-600">Admission Probability:</span>
+                          <span className={`font-bold ${getPredictionColor(mlPrediction.prediction)}`}>
+                            {mlPrediction.prediction}%
+                          </span>
+                        </div>
+                        <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                          <div 
+                            className={`h-full rounded-full ${getProgressBarColor(mlPrediction.probability)}`}
+                            style={{ width: `${mlPrediction.prediction}%` }}
+                          />
+                        </div>
+                      </div>
+                      
+                      {/* Message */}
+                      <div className="p-3 bg-white rounded-lg border border-gray-200">
+                        <p className="text-sm text-gray-700">{mlPrediction.message}</p>
+                      </div>
+                      
+                      <div className="text-xs text-gray-500 flex items-center justify-between">
+                        <span className="flex items-center gap-1">
+                          <TrendingUp className="w-3 h-3" />
+                          Based on {subjectRecords.length} subjects
+                        </span>
+                        {mlPrediction.using_ml && (
+                          <span className="text-purple-600">✓ Using Machine Learning Model</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Manual Prediction Button - Only show if auto-predict is off */}
+            {!autoPredictEnabled && hasEnoughSubjects && !showPrediction && (
+              <div className="mb-6">
+                <button
+                  onClick={getMLPrediction}
+                  disabled={isPredicting}
+                  className="w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:from-purple-700 hover:to-indigo-700 flex items-center justify-center gap-2 font-medium disabled:opacity-50"
+                >
+                  {isPredicting ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Analyzing with AI...
+                    </>
+                  ) : (
+                    <>
+                      <Brain className="w-5 h-5" />
+                      Get AI Admission Prediction
+                    </>
+                  )}
+                </button>
+                <p className="text-xs text-gray-500 text-center mt-2">
+                  AI analyzes your MSCE results to predict admission chances
+                </p>
+              </div>
+            )}
+
             {/* Add Subject Form - Inline */}
             <div className="bg-gray-50 rounded-lg p-5 mb-8">
               <h3 className="font-medium text-gray-800 mb-4">Add MSCE Result</h3>
@@ -469,7 +788,7 @@ export default function MSCEResultsPage() {
                 <button
                   onClick={handleAddSubject}
                   disabled={saving}
-                  className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+                  className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 disabled:opacity-50"
                 >
                   {saving ? (
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
@@ -485,7 +804,9 @@ export default function MSCEResultsPage() {
             <div>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-semibold text-gray-800">MSCE Results</h3>
-                <span className="text-sm text-gray-500">{subjectRecords.length} subjects added</span>
+                <span className={`text-sm ${subjectRecords.length >= 6 ? 'text-green-600' : 'text-gray-500'}`}>
+                  {subjectRecords.length}/6+ subjects added
+                </span>
               </div>
               
               {subjectRecords.length === 0 ? (
@@ -507,7 +828,7 @@ export default function MSCEResultsPage() {
                     </thead>
                     <tbody className="divide-y divide-gray-200">
                       {subjectRecords.map((record, index) => (
-                        <tr key={record.id || index} className="hover:bg-gray-50 transition-colors">
+                        <tr key={record.id || index} className="hover:bg-gray-50">
                           <td className="px-4 py-3 text-gray-800 font-medium">{record.subject}</td>
                           <td className="px-4 py-3">
                             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
@@ -520,7 +841,7 @@ export default function MSCEResultsPage() {
                               <button
                                 onClick={() => openEditModal(index)}
                                 disabled={saving}
-                                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
+                                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg disabled:opacity-50"
                                 title="Edit"
                               >
                                 <Edit3 className="w-4 h-4" />
@@ -528,7 +849,7 @@ export default function MSCEResultsPage() {
                               <button
                                 onClick={() => openDeleteModal(index)}
                                 disabled={saving}
-                                className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                                className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-50"
                                 title="Delete"
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -539,6 +860,14 @@ export default function MSCEResultsPage() {
                       ))}
                     </tbody>
                   </table>
+                  {hasEnoughSubjects && (
+                    <div className="bg-purple-50 px-4 py-2 text-right">
+                      <span className="text-xs text-purple-600 flex items-center justify-end gap-1">
+                        <Sparkles className="w-3 h-3" />
+                        Auto-ML analysis active - Prediction updates automatically
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -547,26 +876,41 @@ export default function MSCEResultsPage() {
             <div className="mt-8 pt-6 border-t border-gray-200 flex justify-end">
               <button
                 onClick={handleNext}
-                className="px-8 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 font-medium"
+                disabled={!hasEnoughSubjects || subjectRecords.length === 0}
+                className={`px-8 py-3 rounded-lg flex items-center gap-2 font-medium ${
+                  hasEnoughSubjects && subjectRecords.length > 0
+                    ? 'bg-green-600 hover:bg-green-700 text-white'
+                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                }`}
               >
                 Continue
                 <ArrowRight className="w-5 h-5" />
               </button>
             </div>
+            
+            {/* Help text if insufficient subjects */}
+            {!hasEnoughSubjects && subjectRecords.length > 0 && (
+              <p className="text-sm text-red-500 text-center mt-4">
+                You need {6 - subjectRecords.length} more subject(s) to proceed
+              </p>
+            )}
           </div>
         </div>
 
         {/* Help Text */}
         <div className="text-center mt-6">
           <p className="text-gray-500 text-sm">
-            Add all your MSCE subjects and results. Select subject and grade to add to your record.
+            Add all your MSCE subjects and results. You need at least 6 subjects to proceed.
+          </p>
+          <p className="text-gray-400 text-xs mt-1">
+            🤖 AI predictions update automatically when Auto-ML is enabled (default)
           </p>
         </div>
       </div>
 
-      {/* Edit Modal */}
+      {/* Edit Modal - Fixed transparent background */}
       {showEditModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
             <div className="flex items-center justify-between p-6 border-b border-gray-200">
               <h3 className="text-lg font-semibold text-gray-800">Edit Subject Result</h3>
@@ -576,7 +920,7 @@ export default function MSCEResultsPage() {
                   setEditingIndex(null);
                   setEditForm({ subject: '', grade: '', id: null });
                 }}
-                className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+                className="p-1 hover:bg-gray-100 rounded-lg"
               >
                 <X className="w-5 h-5 text-gray-500" />
               </button>
@@ -621,14 +965,14 @@ export default function MSCEResultsPage() {
                   setEditingIndex(null);
                   setEditForm({ subject: '', grade: '', id: null });
                 }}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
               >
                 Cancel
               </button>
               <button
                 onClick={handleUpdateSubject}
                 disabled={saving}
-                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 {saving ? (
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
@@ -644,9 +988,9 @@ export default function MSCEResultsPage() {
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete Confirmation Modal - Fixed transparent background */}
       {showDeleteModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
             <div className="flex items-center justify-between p-6 border-b border-gray-200">
               <h3 className="text-lg font-semibold text-gray-800">Confirm Delete</h3>
@@ -655,7 +999,7 @@ export default function MSCEResultsPage() {
                   setShowDeleteModal(false);
                   setDeleteIndex(null);
                 }}
-                className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+                className="p-1 hover:bg-gray-100 rounded-lg"
               >
                 <X className="w-5 h-5 text-gray-500" />
               </button>
@@ -681,14 +1025,14 @@ export default function MSCEResultsPage() {
                   setShowDeleteModal(false);
                   setDeleteIndex(null);
                 }}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
               >
                 Cancel
               </button>
               <button
                 onClick={confirmDelete}
                 disabled={saving}
-                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 {saving ? (
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
@@ -703,22 +1047,6 @@ export default function MSCEResultsPage() {
           </div>
         </div>
       )}
-
-      <style jsx>{`
-        @keyframes slideDown {
-          from {
-            transform: translateY(-100%);
-            opacity: 0;
-          }
-          to {
-            transform: translateY(0);
-            opacity: 1;
-          }
-        }
-        .animate-slide-down {
-          animation: slideDown 0.3s ease-out;
-        }
-      `}</style>
     </div>
   );
 }

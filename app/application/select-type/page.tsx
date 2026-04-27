@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { FileText, ArrowRight, AlertCircle, CheckCircle, GraduationCap, BookOpen, Globe, Award } from 'lucide-react';
+import { FileText, ArrowRight, AlertCircle, CheckCircle, GraduationCap, BookOpen, Globe, Award, Home, ChevronRight, ChevronDown } from 'lucide-react';
 
 interface ApplicationType {
   id: string;
@@ -10,52 +10,83 @@ interface ApplicationType {
   description: string;
   requirements: string[];
   icon: React.ReactNode;
+  color: string;
+  bgColor: string;
 }
 
 const applicationTypes: ApplicationType[] = [
   {
-    id: 'odl',
-    name: 'ODL Student Application',
-    description: "For students applying for bachelor's degree programs under Open and Distance Learning",
+    id: 'degree',
+    name: "Bachelor's Degree",
+    description: "Undergraduate degree programmes (4 years) - Generic and Upgrading pathways available",
     icon: <GraduationCap className="w-5 h-5" />,
+    color: "text-blue-600",
+    bgColor: "bg-blue-50",
     requirements: [
-      'High School Certificate or equivalent',
-      'Minimum GPA requirements met',
+      'Malawi School Certificate of Education (MSCE) or equivalent',
+      'Minimum of 6 credits including English and Mathematics',
       'Completed application form',
+      'Copy of national ID or passport',
     ],
   },
   {
-    id: 'postgraduate',
-    name: 'Postgraduate Application',
-    description: 'For students applying for master\'s or doctoral programs',
+    id: 'masters',
+    name: "Master's Degree",
+    description: "Postgraduate master's programmes (2 years) - Full-time and ODeL options",
     icon: <Award className="w-5 h-5" />,
+    color: "text-purple-600",
+    bgColor: "bg-purple-50",
     requirements: [
-      "Bachelor's degree certificate",
+      "Bachelor's degree with at least lower second class honours",
       'Academic transcripts',
       'Research proposal (for research programs)',
-      'Letters of recommendation',
+      'Two letters of recommendation',
+      'Curriculum vitae (CV)',
+    ],
+  },
+  {
+    id: 'phd',
+    name: "PhD / Doctorate",
+    description: "Doctoral programmes (3 years) - Research-focused degrees",
+    icon: <Award className="w-5 h-5" />,
+    color: "text-green-600",
+    bgColor: "bg-green-50",
+    requirements: [
+      "Master's degree in a relevant field",
+      "Bachelor's degree with upper second class honours",
+      'Detailed research proposal',
+      'Academic transcripts',
+      'Three letters of recommendation',
+      'Curriculum vitae (CV)',
+      'Publications (if any)',
     ],
   },
   {
     id: 'diploma',
-    name: 'Diploma/Certificate Programs',
-    description: 'For students applying for diploma or certificate courses',
+    name: "Diploma Programmes",
+    description: "Diploma certificates (2 years) - Practical and career-focused programmes",
     icon: <BookOpen className="w-5 h-5" />,
+    color: "text-orange-600",
+    bgColor: "bg-orange-50",
     requirements: [
-      'High School Certificate or equivalent',
-      'Specific subject requirements (if applicable)',
+      'Malawi School Certificate of Education (MSCE) or equivalent',
+      'Minimum of 4 credits including relevant subjects',
+      'Completed application form',
+      'Copy of national ID',
     ],
   },
   {
-    id: 'international',
-    name: 'International Student Application',
-    description: 'For international students applying to the university',
-    icon: <Globe className="w-5 h-5" />,
+    id: 'certificate',
+    name: "Certificate Programmes",
+    description: "Short certificate courses (1 year) - Foundation and specialized training",
+    icon: <BookOpen className="w-5 h-5" />,
+    color: "text-teal-600",
+    bgColor: "bg-teal-50",
     requirements: [
-      'Equivalent qualifications recognized by qualifications authority',
-      'English language proficiency certificate',
-      'Student visa documentation',
-      'Passport copies',
+      'Malawi School Certificate of Education (MSCE) or equivalent',
+      'Minimum of 2 credits',
+      'Completed application form',
+      'Copy of national ID',
     ],
   },
 ];
@@ -115,45 +146,18 @@ export default function SelectApplicationType() {
         return;
       }
 
-      const updateResponse = await fetch(`${API_BASE_URL}/update-role/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ role: selectedType }),
-      });
-
-      const result = await updateResponse.json();
-
-      if (updateResponse.ok && result.success) {
-        const updatedUser = {
-          ...user,
-          role: selectedType,
-          application_type: selectedType
-        };
-        localStorage.setItem('user', JSON.stringify(updatedUser));
-        localStorage.setItem('userApplicationType', selectedType);
-        localStorage.setItem('userRole', selectedType);
-        
-        setSuccess('Application type selected successfully! Redirecting...');
-        
-        setTimeout(() => {
-          router.push('/application/personal-details');
-        }, 1500);
-        
-      } else {
-        if (result.message?.includes('authenticated') || result.message?.includes('token')) {
-          setError('Session expired. Please log in again.');
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
-          setTimeout(() => router.push('/login'), 1500);
-        } else {
-          setError(result.message || 'Failed to update application type. Please try again.');
-        }
-      }
-
+      const selectedTypeData = applicationTypes.find(t => t.id === selectedType);
+      
+      // Store the selected application type
+      localStorage.setItem('userApplicationType', selectedType);
+      localStorage.setItem('userApplicationTypeName', selectedTypeData?.name || '');
+      
+      setSuccess(`${selectedTypeData?.name} selected successfully! Redirecting...`);
+      
+      setTimeout(() => {
+        router.push('/application/program-selection');
+      }, 1500);
+      
     } catch (error: any) {
       if (error.message.includes('Failed to fetch')) {
         setError('Cannot connect to server. Please ensure the Django backend is running.');
@@ -169,11 +173,7 @@ export default function SelectApplicationType() {
     router.push('/');
   };
 
-  const getSelectedTypeDetails = () => {
-    return applicationTypes.find(type => type.id === selectedType);
-  };
-
-  const selectedDetails = getSelectedTypeDetails();
+  const selectedDetails = applicationTypes.find(type => type.id === selectedType);
 
   if (isAuthenticated === null) {
     return (
@@ -194,6 +194,27 @@ export default function SelectApplicationType() {
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-4xl mx-auto px-4">
         
+        {/* Breadcrumb Navigation */}
+        <div className="mb-6">
+          <nav className="flex items-center gap-2 text-sm">
+            <button
+              onClick={() => router.push('/')}
+              className="flex items-center gap-1 text-gray-600 hover:text-green-600 transition-colors"
+            >
+              <Home className="w-4 h-4" />
+              <span>Home</span>
+            </button>
+            <ChevronRight className="w-4 h-4 text-gray-400" />
+            <span className="text-gray-900 font-medium">Application Type</span>
+          </nav>
+        </div>
+
+        {/* Header */}
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">Choose Your Application Type</h1>
+          <p className="text-gray-600 mt-2">Select the programme category that matches your academic goals</p>
+        </div>
+
         {/* Main Card */}
         <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
           {/* Application Type Header */}
@@ -231,29 +252,32 @@ export default function SelectApplicationType() {
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Select Application Type *
               </label>
-              <select
-                value={selectedType}
-                onChange={(e) => handleSelection(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white text-gray-800"
-              >
-                <option value="">-- Choose your application type --</option>
-                {applicationTypes.map((type) => (
-                  <option key={type.id} value={type.id}>
-                    {type.name}
-                  </option>
-                ))}
-              </select>
+              <div className="relative">
+                <select
+                  value={selectedType}
+                  onChange={(e) => handleSelection(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white text-gray-800 appearance-none cursor-pointer"
+                >
+                  <option value="">-- Choose your application type --</option>
+                  {applicationTypes.map((type) => (
+                    <option key={type.id} value={type.id}>
+                      {type.name}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
+              </div>
               <p className="text-xs text-gray-500 mt-1">
                 Choose the option that best describes your applicant category
               </p>
             </div>
 
-            {/* Selected Type Details Card - with DOTTED BORDER */}
+            {/* Selected Type Details Card */}
             {selectedDetails && (
               <div className="mb-8 border-2 border-dashed border-green-500 rounded-lg overflow-hidden">
-                <div className="bg-green-50 p-4 border-b border-dashed border-green-200">
+                <div className={`${selectedDetails.bgColor} p-4 border-b border-dashed border-green-200`}>
                   <div className="flex items-center gap-3">
-                    <div className="p-2 bg-green-100 rounded-lg text-green-600">
+                    <div className={`p-2 ${selectedDetails.bgColor} rounded-lg ${selectedDetails.color}`}>
                       {selectedDetails.icon}
                     </div>
                     <div>

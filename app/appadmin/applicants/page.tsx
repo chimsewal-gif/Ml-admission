@@ -26,7 +26,6 @@ export default function ApplicantsPage() {
   const [error, setError] = useState<string>('');
   const router = useRouter();
 
-  // Helper to get token from localStorage
   const getToken = () => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('token');
@@ -48,8 +47,6 @@ export default function ApplicantsPage() {
           return;
         }
 
-        console.log('Fetching applicants from:', `${API_BASE_URL}/applicants`);
-        
         const response = await fetch(`${API_BASE_URL}/applicants`, {
           method: 'GET',
           headers: {
@@ -58,8 +55,6 @@ export default function ApplicantsPage() {
             'Content-Type': 'application/json',
           },
         });
-
-        console.log('API Response status:', response.status);
         
         if (!response.ok) {
           if (response.status === 401) {
@@ -71,23 +66,20 @@ export default function ApplicantsPage() {
         }
 
         const data = await response.json();
-        console.log('API Response data:', data);
 
         if (data && data.success) {
           setApplicants(data.data || []);
           setError('');
         } else {
-          console.error('Unexpected response format:', data);
           setApplicants([]);
           setError(data.message || 'Failed to load applicants');
         }
         
       } catch (err: any) {
-        console.error('Failed to fetch applicants:', err);
         const errorMessage = err.message || 'Failed to fetch applicants';
         setError(errorMessage);
         
-        if (err.message.includes('login') || err.message.includes('Session expired')) {
+        if (err.message?.includes('login') || err.message?.includes('Session expired')) {
           setTimeout(() => {
             router.push('/login');
           }, 2000);
@@ -100,7 +92,6 @@ export default function ApplicantsPage() {
     fetchApplicants();
   }, [router]);
 
-  // Filter applicants based on search and status
   const filteredApplicants = applicants.filter(applicant => {
     const matchesSearch = 
       applicant.firstname?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -170,7 +161,6 @@ export default function ApplicantsPage() {
   };
 
   const handleExport = () => {
-    // Create CSV data
     const headers = ['ID', 'First Name', 'Last Name', 'Email', 'Phone', 'Program', 'Status', 'Application Date'];
     const csvData = filteredApplicants.map(applicant => [
       applicant.id,
@@ -214,9 +204,7 @@ export default function ApplicantsPage() {
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between mb-6">
             <div>
               <h1 className="text-3xl font-bold text-gray-900 mb-2">User Management</h1>
-              <p className="text-gray-600 text-lg">
-                Manage and view all system users
-              </p>
+              <p className="text-gray-600 text-lg">Manage and view all system users</p>
             </div>
             <div className="flex items-center space-x-4 mt-4 lg:mt-0">
               <button 
@@ -352,31 +340,17 @@ export default function ApplicantsPage() {
             <table className="w-full">
               <thead>
                 <tr className="bg-gradient-to-r from-blue-600 to-blue-700 text-white">
-                  <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider">
-                    User
-                  </th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider">
-                    Contact
-                  </th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider">
-                    Program
-                  </th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider">
-                    Actions
-                  </th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider">User</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider">Contact</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider">Program</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filteredApplicants.length > 0 ? (
                   filteredApplicants.map((applicant) => (
-                    <tr
-                      key={applicant.id}
-                      className="hover:bg-blue-50/30 transition-all duration-200 group"
-                    >
-                      {/* User Name */}
+                    <tr key={applicant.id} className="hover:bg-blue-50/30 transition-all duration-200 group">
                       <td className="px-6 py-4">
                         <div className="flex items-center space-x-3">
                           <div className="flex-shrink-0 w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
@@ -386,32 +360,22 @@ export default function ApplicantsPage() {
                             <div className="text-sm font-medium text-gray-900">
                               {applicant.firstname} {applicant.lastname}
                             </div>
-                            <div className="text-xs text-gray-500">
-                              ID: {applicant.id}
-                            </div>
+                            <div className="text-xs text-gray-500">ID: {applicant.id}</div>
                           </div>
                         </div>
-                       </td>
-
-                      {/* Contact Information */}
+                      </td>
                       <td className="px-6 py-4">
                         <div className="space-y-1">
                           <div className="flex items-center space-x-2">
                             <Mail className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                            <span className="text-sm text-gray-900 truncate max-w-[200px]">
-                              {applicant.email}
-                            </span>
+                            <span className="text-sm text-gray-900 truncate max-w-[200px]">{applicant.email}</span>
                           </div>
                           <div className="flex items-center space-x-2">
                             <Phone className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                            <span className="text-sm text-gray-600">
-                              {applicant.phone || 'Not provided'}
-                            </span>
+                            <span className="text-sm text-gray-600">{applicant.phone || 'Not provided'}</span>
                           </div>
                         </div>
-                       </td>
-
-                      {/* Program */}
+                      </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center space-x-2">
                           <BookOpen className="w-4 h-4 text-gray-400 flex-shrink-0" />
@@ -419,16 +383,12 @@ export default function ApplicantsPage() {
                             {getProgramDisplayName(applicant.program)}
                           </span>
                         </div>
-                       </td>
-
-                      {/* Status */}
+                      </td>
                       <td className="px-6 py-4">
                         <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(applicant.status || 'user')}`}>
                           {getStatusText(applicant.status || 'user')}
                         </span>
-                       </td>
-
-                      {/* Actions */}
+                      </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center space-x-2">
                           <button
@@ -442,7 +402,7 @@ export default function ApplicantsPage() {
                             <MoreVertical className="w-4 h-4" />
                           </button>
                         </div>
-                       </td>
+                      </td>
                     </tr>
                   ))
                 ) : (
@@ -455,8 +415,7 @@ export default function ApplicantsPage() {
                           <p className="text-gray-500 text-sm mt-1">
                             {searchTerm || filterStatus !== 'all' 
                               ? 'Try adjusting your search or filters' 
-                              : 'There are no users to display at this time.'
-                            }
+                              : 'There are no users to display at this time.'}
                           </p>
                         </div>
                       </div>
@@ -483,14 +442,20 @@ export default function ApplicantsPage() {
 
       {/* User Detail Modal */}
       {selectedApplicant && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div 
+          className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center p-4 z-50"
+          onClick={() => setSelectedApplicant(null)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-6 border-b border-gray-200">
               <div className="flex items-center justify-between">
                 <h3 className="text-xl font-bold text-gray-900">User Details</h3>
                 <button
                   onClick={() => setSelectedApplicant(null)}
-                  className="text-gray-400 hover:text-gray-600"
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
                 >
                   ✕
                 </button>

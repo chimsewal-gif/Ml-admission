@@ -10,6 +10,9 @@ import {
   Save,
   ArrowLeft,
   ChevronDown,
+  School,
+  Clock,
+  Layers,
 } from 'lucide-react';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000/api';
@@ -27,6 +30,9 @@ interface Programme {
   department: string;
   duration: string;
   category: string;
+  school?: string;
+  study_mode?: string;
+  programme_type?: string;
 }
 
 export default function AddOrEditProgrammePage() {
@@ -39,6 +45,9 @@ export default function AddOrEditProgrammePage() {
   const [department, setDepartment] = useState('');
   const [duration, setDuration] = useState('');
   const [category, setCategory] = useState('');
+  const [school, setSchool] = useState('');
+  const [studyMode, setStudyMode] = useState('');
+  const [programmeType, setProgrammeType] = useState('');
   const [loading, setLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -228,6 +237,9 @@ export default function AddOrEditProgrammePage() {
       setDepartment(programme.department || '');
       setDuration(programme.duration || '');
       setCategory(programme.category || '');
+      setSchool(programme.school || '');
+      setStudyMode(programme.study_mode || '');
+      setProgrammeType(programme.programme_type || '');
     } catch (error: any) {
       console.error('Error fetching programme details:', error);
       setError('Failed to fetch programme details.');
@@ -258,7 +270,10 @@ export default function AddOrEditProgrammePage() {
         description, 
         department, 
         duration, 
-        category 
+        category,
+        school,
+        study_mode: studyMode,
+        programme_type: programmeType,
       };
 
       console.log('🚀 Submitting programme data:', payload);
@@ -410,6 +425,7 @@ export default function AddOrEditProgrammePage() {
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="p-1 bg-gradient-to-r from-green-600 to-green-700"></div>
             <form onSubmit={handleSubmit} className="p-6 sm:p-8 space-y-6">
+              {/* Programme Name */}
               <div>
                 <label className="flex items-center space-x-2 mb-3 text-sm font-semibold text-gray-700">
                   <BookOpen className="w-4 h-4 text-green-600" />
@@ -425,6 +441,7 @@ export default function AddOrEditProgrammePage() {
                 />
               </div>
 
+              {/* Description */}
               <div>
                 <label className="flex items-center space-x-2 mb-3 text-sm font-semibold text-gray-700">
                   <Hash className="w-4 h-4 text-green-600" />
@@ -439,7 +456,35 @@ export default function AddOrEditProgrammePage() {
                 />
               </div>
 
+              {/* School Field - NEW */}
+              <div>
+                <label className="flex items-center space-x-2 mb-3 text-sm font-semibold text-gray-700">
+                  <School className="w-4 h-4 text-green-600" />
+                  <span>School / Faculty</span>
+                </label>
+                <div className="relative">
+                  <select
+                    value={school}
+                    onChange={(e) => setSchool(e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none bg-white transition-all duration-200"
+                  >
+                    <option value="">Select School/Faculty</option>
+                    <option value="Science, Technology and Innovation">Science, Technology and Innovation</option>
+                    <option value="Humanities and Social Sciences">Humanities and Social Sciences</option>
+                    <option value="Tourism, Hospitality and Management">Tourism, Hospitality and Management</option>
+                    <option value="Education">Education</option>
+                    <option value="Law">Law</option>
+                    <option value="Business">Business</option>
+                    <option value="Medicine">Medicine</option>
+                    <option value="Engineering">Engineering</option>
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none" />
+                </div>
+                <p className="text-xs text-gray-500 mt-1">The school or faculty offering this programme</p>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                {/* Department */}
                 <div>
                   <label className="flex items-center space-x-2 mb-3 text-sm font-semibold text-gray-700">
                     <Building className="w-4 h-4 text-green-600" />
@@ -473,6 +518,7 @@ export default function AddOrEditProgrammePage() {
                   )}
                 </div>
 
+                {/* Duration */}
                 <div>
                   <label className="flex items-center space-x-2 mb-3 text-sm font-semibold text-gray-700">
                     <Calendar className="w-4 h-4 text-green-600" />
@@ -497,6 +543,7 @@ export default function AddOrEditProgrammePage() {
                   </div>
                 </div>
 
+                {/* Category */}
                 <div>
                   <label className="flex items-center space-x-2 mb-3 text-sm font-semibold text-gray-700">
                     <Tag className="w-4 h-4 text-green-600" />
@@ -517,6 +564,54 @@ export default function AddOrEditProgrammePage() {
                     </select>
                     <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none" />
                   </div>
+                </div>
+
+                {/* Study Mode - NEW */}
+                <div>
+                  <label className="flex items-center space-x-2 mb-3 text-sm font-semibold text-gray-700">
+                    <Clock className="w-4 h-4 text-green-600" />
+                    <span>Study Mode *</span>
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={studyMode}
+                      onChange={(e) => setStudyMode(e.target.value)}
+                      required
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none bg-white transition-all duration-200"
+                    >
+                      <option value="">Select study mode</option>
+                      <option value="full time">Full Time</option>
+                      <option value="weekend">Weekend</option>
+                      <option value="evening">Evening</option>
+                      <option value="online">Online</option>
+                      <option value="odel">ODeL</option>
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none" />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">How the programme is delivered (Full Time, Weekend, ODeL, etc.)</p>
+                </div>
+
+                {/* Programme Type - NEW */}
+                <div>
+                  <label className="flex items-center space-x-2 mb-3 text-sm font-semibold text-gray-700">
+                    <Layers className="w-4 h-4 text-green-600" />
+                    <span>Programme Type *</span>
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={programmeType}
+                      onChange={(e) => setProgrammeType(e.target.value)}
+                      required
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none bg-white transition-all duration-200"
+                    >
+                      <option value="">Select programme type</option>
+                      <option value="generic">Generic (4 years)</option>
+                      <option value="upgrading">Upgrading (2-3 years)</option>
+                      <option value="non-generic">Non-Generic</option>
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none" />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">Type of programme (Generic, Upgrading, or Non-Generic)</p>
                 </div>
               </div>
 

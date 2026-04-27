@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import Button from '@/componets/Button';
-import ProgressIndicator from '@/componets/ProgressIndicator';
 import { CheckCircle, AlertCircle, FileText, User, BookOpen, CreditCard, Upload, Bell, Calendar, PlusCircle, ChevronRight, Send, Inbox } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
@@ -325,7 +324,7 @@ export default function DashboardPage() {
       title: 'Personal Information',
       description: 'Your basic personal details',
       icon: User,
-      href: '/application/program-selection',
+      href: '/application/select-type',
       color: 'blue'
     },
     {
@@ -452,7 +451,7 @@ export default function DashboardPage() {
     return (
       <div className="p-4 md:p-8">
         <div className="max-w-4xl mx-auto">
-          <ProgressIndicator currentStep={11} />
+          
           
           <div className="bg-green-50 rounded-2xl border border-green-200 p-8 text-center mt-8">
             <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
@@ -481,7 +480,7 @@ export default function DashboardPage() {
   return (
     <div className="p-4 md:p-8">
       <div className="max-w-5xl mx-auto">
-        <ProgressIndicator currentStep={1} />
+      
 
         {/* Welcome Section */}
         <div className="mb-8">
@@ -490,7 +489,7 @@ export default function DashboardPage() {
               {/* Email removed as requested */}
             </div>
             <button
-              onClick={() => router.push('/application/program-selection')}
+              onClick={() => router.push('/application/select-type')}
               className="flex items-center gap-2 px-5 py-2.5 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors shadow-sm"
             >
               <PlusCircle className="w-5 h-5" />
@@ -697,7 +696,7 @@ export default function DashboardPage() {
               type="button"
               title="Get Started"
               variant="bg-green-600"
-              href="/application/program-selection"
+              href="/application/select-type"
               className="px-6 py-2"
             />
           </div>
