@@ -35,12 +35,35 @@ export default function StudentSidebar() {
   const [completedSections, setCompletedSections] = useState<string[]>([]);
   const [applicationSubmitted, setApplicationSubmitted] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [feeStatus, setFeeStatus] = useState<string>('pending');
+  const [hasDepositSlip, setHasDepositSlip] = useState(false);
+  const [apiError, setApiError] = useState(false);
 
   const getToken = () => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('token');
     }
     return null;
+  };
+
+  // Helper function to safely fetch JSON
+  const safeFetch = async (url: string, options: RequestInit = {}) => {
+    try {
+      const response = await fetch(url, options);
+      
+      // Check if response is JSON
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        console.warn(`Non-JSON response from ${url}:`, contentType);
+        return { success: false, data: null, error: 'Invalid response format' };
+      }
+      
+      const data = await response.json();
+      return { success: true, data, error: null };
+    } catch (err) {
+      console.error(`Error fetching ${url}:`, err);
+      return { success: false, data: null, error: err };
+    }
   };
 
   // Fetch user's application progress
@@ -55,61 +78,116 @@ export default function StudentSidebar() {
 
         const completed: string[] = [];
 
-        // Check if Profile is completed (has personal details)
-        const profileRes = await fetch(`${API_BASE_URL}/personal-details/`, {
+        // Check if Profile is completed
+        const profileResult = await safeFetch(`${API_BASE_URL}/personal-details/`, {
           headers: { 'Authorization': `Bearer ${token}` },
         });
-        const profileData = await profileRes.json();
-        if (profileData.success && profileData.data) {
-          const hasPersonalInfo = profileData.data.first_name && 
-                                   profileData.data.last_name && 
-                                   profileData.data.email;
+        
+        if (profileResult.success && profileResult.data && profileResult.data.data) {
+          const profileData = profileResult.data.data;
+          const hasPersonalInfo = profileData.first_name && profileData.last_name && profileData.email;
           if (hasPersonalInfo) {
             completed.push('Profile');
           }
         }
 
         // Check if Next of Kin is completed
-        const nextOfKinRes = await fetch(`${API_BASE_URL}/next-of-kin/`, {
+        const nextOfKinResult = await safeFetch(`${API_BASE_URL}/next-of-kin/`, {
           headers: { 'Authorization': `Bearer ${token}` },
         });
-        const nextOfKinData = await nextOfKinRes.json();
-        if (nextOfKinData.success && nextOfKinData.data && nextOfKinData.data.length > 0) {
+        
+        if (nextOfKinResult.success && nextOfKinResult.data && nextOfKinResult.data.data && nextOfKinResult.data.data.length > 0) {
           completed.push('Next of Kin');
         }
 
-        // Check if Qualifications (Subject Records) are completed
-        const subjectsRes = await fetch(`${API_BASE_URL}/subject-records/`, {
+        // Check if Qualifications are completed
+        const subjectsResult = await safeFetch(`${API_BASE_URL}/subject-records/`, {
           headers: { 'Authorization': `Bearer ${token}` },
         });
-        const subjectsData = await subjectsRes.json();
-        if (subjectsData.success && subjectsData.data && subjectsData.data.length > 0) {
+        
+        if (subjectsResult.success && subjectsResult.data && subjectsResult.data.data && subjectsResult.data.data.length > 0) {
           completed.push('Qualifications');
         }
 
-        // Check if Fees are paid
-        const feesRes = await fetch(`${API_BASE_URL}/application-fees/`, {
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
-        const feesData = await feesRes.json();
-        if (feesData.success && feesData.data && feesData.data.status === 'verified') {
+        // Check if Fees are paid/completed - FIXED VERSION
+        let hasPayment = false;
+        
+        try {
+          // Try the application-fees endpoint
+          const feesResult = await safeFetch(`${API_BASE_URL}/application-fees/`, {
+            method: 'GET',
+            headers: { 
+              'Authorization': `Bearer ${token}`,
+              'Accept': 'application/json',
+            },
+          });
+          
+          console.log('Fees API Response:', feesResult);
+          
+          if (feesResult.success && feesResult.data) {
+            const feesData = feesResult.data;
+            
+            // Check multiple conditions for payment
+            if (feesData.data) {
+              // Check if deposit_slip or deposit_slip_path exists
+              if (feesData.data.deposit_slip || feesData.data.deposit_slip_path || feesData.data.file_path) {
+                hasPayment = true;
+                setHasDepositSlip(true);
+                setFeeStatus(feesData.data.status || 'pending');
+              }
+              // Check if status indicates payment is complete
+              if (feesData.data.status === 'verified' || 
+                  feesData.data.status === 'approved' || 
+                  feesData.data.status === 'accepted') {
+                hasPayment = true;
+                setHasDepositSlip(true);
+                setFeeStatus(feesData.data.status);
+              }
+            }
+          }
+        } catch (feesErr) {
+          console.error('Error checking fees:', feesErr);
+        }
+        
+        // Fallback: Try payment-status endpoint if available
+        if (!hasPayment) {
+          try {
+            const paymentStatusResult = await safeFetch(`${API_BASE_URL}/payment-status/`, {
+              headers: { 'Authorization': `Bearer ${token}` },
+            });
+            
+            if (paymentStatusResult.success && paymentStatusResult.data) {
+              if (paymentStatusResult.data.has_paid === true || paymentStatusResult.data.has_deposit_slip === true) {
+                hasPayment = true;
+                setHasDepositSlip(true);
+                setFeeStatus(paymentStatusResult.data.status || 'pending');
+              }
+            }
+          } catch (statusErr) {
+            console.log('Payment status endpoint not available');
+          }
+        }
+        
+        if (hasPayment) {
           completed.push('Fees');
         }
 
         // Check if Application is submitted
-        const submitRes = await fetch(`${API_BASE_URL}/submit/status/`, {
+        const submitResult = await safeFetch(`${API_BASE_URL}/submit/status/`, {
           headers: { 'Authorization': `Bearer ${token}` },
         });
-        const submitData = await submitRes.json();
-        if (submitData.success && submitData.data && submitData.data.is_submitted) {
+        
+        if (submitResult.success && submitResult.data && submitResult.data.data && submitResult.data.data.is_submitted) {
           setApplicationSubmitted(true);
           completed.push('My Application');
         }
 
         setCompletedSections(completed);
+        setApiError(false);
         
       } catch (err) {
         console.error('Error fetching progress:', err);
+        setApiError(true);
       } finally {
         setLoading(false);
       }
@@ -127,7 +205,6 @@ export default function StudentSidebar() {
     }
   }, [isOpen]);
 
-  // Remove animations - direct state change without any conditions
   const handleMouseEnter = () => {
     setIsCollapsed(true);
   };
@@ -136,24 +213,28 @@ export default function StudentSidebar() {
     setIsCollapsed(false);
   };
 
-  // Default is expanded (w-64), collapses to w-20 on hover
   const isExpanded = !isCollapsed;
 
-  // Function to check if a section is complete
   const isSectionComplete = (label: string) => {
     if (label === 'Dashboard') return true;
     if (label === 'My Application' && applicationSubmitted) return true;
+    if (label === 'Fees') {
+      return hasDepositSlip || completedSections.includes(label);
+    }
     return completedSections.includes(label);
   };
 
-  // Function to check if section should be disabled (incomplete and not dashboard)
   const isSectionDisabled = (label: string, required: boolean) => {
     if (label === 'Dashboard') return false;
     if (label === 'My Application') {
-      // My Application is only disabled if not all previous sections are complete
       const requiredSections = ['Profile', 'Next of Kin', 'Qualifications', 'Fees'];
-      const allPreviousComplete = requiredSections.every(section => completedSections.includes(section));
+      const allPreviousComplete = requiredSections.every(section => 
+        completedSections.includes(section) || (section === 'Fees' && hasDepositSlip)
+      );
       return !allPreviousComplete;
+    }
+    if (label === 'Fees') {
+      return required && !hasDepositSlip && !completedSections.includes(label);
     }
     return required && !completedSections.includes(label);
   };
@@ -161,19 +242,46 @@ export default function StudentSidebar() {
   // Calculate overall progress percentage
   const calculateProgress = () => {
     const totalRequired = studentNavItems.filter(item => item.required).length;
-    const completedCount = studentNavItems.filter(item => {
-      if (item.label === 'My Application') return applicationSubmitted;
-      return item.required && completedSections.includes(item.label);
-    }).length;
-    return Math.round((completedCount / totalRequired) * 100);
+    let completedCount = 0;
+    
+    for (const item of studentNavItems) {
+      if (item.label === 'My Application') {
+        if (applicationSubmitted) completedCount++;
+      } else if (item.label === 'Fees') {
+        if (hasDepositSlip || completedSections.includes(item.label)) completedCount++;
+      } else if (item.required && completedSections.includes(item.label)) {
+        completedCount++;
+      }
+    }
+    
+    return totalRequired > 0 ? Math.round((completedCount / totalRequired) * 100) : 0;
   };
 
   const overallProgress = calculateProgress();
 
-  // Function to check if a route is active
   const isRouteActive = (href: string) => {
     return pathname === href;
   };
+
+  const getFeeStatusMessage = () => {
+    if (feeStatus === 'verified' || feeStatus === 'approved') {
+      return '✓ Fee payment verified!';
+    }
+    if (hasDepositSlip) {
+      return '⏳ Deposit slip uploaded - Awaiting verification';
+    }
+    return 'Complete previous sections first';
+  };
+
+  if (loading) {
+    return (
+      <aside className="fixed top-0 left-0 h-screen w-64 bg-white shadow-md border-r border-gray-200 pt-4">
+        <div className="flex justify-center items-center h-32">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
+        </div>
+      </aside>
+    );
+  }
 
   return (
     <>
@@ -186,7 +294,7 @@ export default function StudentSidebar() {
         {isOpen ? <X className="w-6 h-6 text-green-800" /> : <Menu className="w-6 h-6 text-green-800" />}
       </button>
 
-      {/* Sidebar - No transition classes */}
+      {/* Sidebar */}
       <aside
         className={`
           fixed top-0 left-0 h-screen bg-white shadow-md border-r border-gray-200 pt-4
@@ -198,7 +306,7 @@ export default function StudentSidebar() {
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
       >
-        {/* Logo - No transition classes */}
+        {/* Logo */}
         <div className="flex justify-center mb-4 px-2">
           <Image
             src="/logo.jpeg"
@@ -208,7 +316,7 @@ export default function StudentSidebar() {
           />
         </div>
 
-        {/* Full Title - Conditionally rendered, no transitions */}
+        {/* Full Title */}
         {isExpanded && (
           <div className="text-center mb-4">
             <h1 className="font-extrabold text-green-950 text-sm whitespace-nowrap">Mzuni Student Portal</h1>
@@ -216,7 +324,7 @@ export default function StudentSidebar() {
           </div>
         )}
 
-        {/* Collapsed Title - Conditionally rendered, no transitions */}
+        {/* Collapsed Title */}
         {!isExpanded && (
           <div className="text-center mb-4">
             <h1 className="font-extrabold text-green-950 text-xs whitespace-nowrap">Mzuni</h1>
@@ -225,7 +333,7 @@ export default function StudentSidebar() {
 
         <hr className="mb-3 mx-2" />
 
-        {/* Progress Section - Only show when expanded */}
+        {/* Progress Section */}
         {isExpanded && !loading && (
           <div className="px-3 mb-4">
             <div className="bg-transparent rounded-lg p-3">
@@ -236,18 +344,33 @@ export default function StudentSidebar() {
                 </div>
                 <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
                   <div 
-                    className="h-full bg-green-500 rounded-full"
+                    className="h-full bg-green-500 rounded-full transition-all duration-300"
                     style={{ width: `${overallProgress}%` }}
                   />
                 </div>
               </div>
+              {hasDepositSlip && feeStatus !== 'verified' && feeStatus !== 'approved' && (
+                <div className="text-xs text-amber-600 mt-2 text-center">
+                  Fee payment pending verification
+                </div>
+              )}
+              {feeStatus === 'verified' && (
+                <div className="text-xs text-green-600 mt-2 text-center">
+                  ✓ Fee verified!
+                </div>
+              )}
+              {apiError && (
+                <div className="text-xs text-red-600 mt-2 text-center">
+                  Unable to load some data
+                </div>
+              )}
             </div>
           </div>
         )}
 
         <hr className="mb-3 mx-2" />
 
-        {/* Navigation - No transition classes */}
+        {/* Navigation */}
         <nav className="space-y-2 px-2">
           {studentNavItems.map(({ label, href, icon: Icon, required }) => {
             const isActive = isRouteActive(href);
@@ -257,32 +380,33 @@ export default function StudentSidebar() {
             return (
               <div key={`${href}-${label}`} className="relative">
                 {isDisabled ? (
-                  // Disabled item - not clickable
                   <div
                     className={`
                       flex items-center gap-3 rounded-md cursor-not-allowed opacity-50
                       ${!isExpanded ? 'justify-center' : 'px-3 py-2'}
                       text-gray-400
                     `}
-                    title={!isExpanded ? `${label} (Complete previous sections first)` : `${label} - Complete previous sections first`}
+                    title={!isExpanded ? `${label} (${getFeeStatusMessage()})` : `${label} - Complete previous sections first`}
                   >
                     <Icon className="w-5 h-5" />
                     <span className={`text-sm font-medium ${isExpanded ? 'inline-block' : 'hidden'}`}>
                       {label}
                     </span>
+                    {isExpanded && label === 'Fees' && hasDepositSlip && feeStatus !== 'verified' && (
+                      <span className="text-xs text-amber-500 ml-auto">Pending</span>
+                    )}
                     {isExpanded && (
                       <Lock className="w-3 h-3 ml-auto" />
                     )}
                   </div>
                 ) : (
-                  // Active/Clickable item - No hover transitions
                   <Link
                     href={href}
                     className={`
-                      flex items-center gap-3 rounded-md
+                      flex items-center gap-3 rounded-md transition-colors
                       ${isActive 
                         ? 'bg-green-600 text-white' 
-                        : 'text-green-700 hover:bg-gray-400 hover:text-white'
+                        : 'text-green-700 hover:bg-gray-100 hover:text-green-800'
                       }
                       ${!isExpanded ? 'justify-center' : 'px-3 py-2'}
                     `}
@@ -296,6 +420,9 @@ export default function StudentSidebar() {
                     {isExpanded && isComplete && required && (
                       <CheckCircle className="w-3 h-3 ml-auto text-green-500" />
                     )}
+                    {isExpanded && label === 'Fees' && hasDepositSlip && feeStatus !== 'verified' && (
+                      <span className="text-xs text-amber-500 ml-auto">Pending</span>
+                    )}
                   </Link>
                 )}
               </div>
@@ -303,7 +430,7 @@ export default function StudentSidebar() {
           })}
         </nav>
 
-        {/* Completion Status Legend - Only show when expanded */}
+        {/* Completion Status Legend */}
         {isExpanded && !loading && (
           <div className="mt-4 px-3 pt-3 border-t border-gray-200">
             <div className="flex items-center justify-between text-xs text-gray-500">
@@ -320,7 +447,7 @@ export default function StudentSidebar() {
         )}
       </aside>
 
-      {/* Overlay for mobile when sidebar is open */}
+      {/* Overlay for mobile */}
       {isOpen && (
         <div
           className="fixed inset-0 bg-black/50 z-40 md:hidden"

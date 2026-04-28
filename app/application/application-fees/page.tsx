@@ -1,4 +1,3 @@
-// app/application-fees/page.tsx
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
@@ -48,6 +47,7 @@ export default function ApplicationFeesPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [redirectCountdown, setRedirectCountdown] = useState<number | null>(null);
   
   // Form state
   const [depositReference, setDepositReference] = useState('');
@@ -68,6 +68,76 @@ export default function ApplicationFeesPage() {
   // Fee amounts based on program type
   const [programType, setProgramType] = useState<string>('undergraduate');
   const [feeAmount, setFeeAmount] = useState<number>(25000);
+
+  // Auto-redirect countdown effect
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    
+    if (redirectCountdown !== null && redirectCountdown > 0) {
+      interval = setInterval(() => {
+        setRedirectCountdown(prev => (prev !== null ? prev - 1 : null));
+      }, 1000);
+    } else if (redirectCountdown === 0) {
+      // Redirect to next page
+      router.push('/application/referees');
+    }
+    
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [redirectCountdown, router]);
+
+  // Poll for fee verification status
+  useEffect(() => {
+    let pollInterval: NodeJS.Timeout;
+    
+    if (submissionStatus === 'pending' || submissionStatus === 'submitted') {
+      // Poll every 5 seconds to check if fee has been verified
+      pollInterval = setInterval(async () => {
+        if (!token) return;
+        
+        try {
+          const response = await fetch(`${API_BASE_URL}/application-fees/`, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            if (data.success && data.data) {
+              const status = data.data.status;
+              
+              // If status changed to verified/approved, update and auto-redirect
+              if ((status === 'verified' || status === 'approved') && submissionStatus !== 'verified') {
+                setSubmissionStatus('verified');
+                setSuccess('✓ Payment verified! Redirecting to next step...');
+                
+                // Start countdown for auto-redirect (3 seconds)
+                setRedirectCountdown(3);
+                
+                // Clear polling
+                if (pollInterval) clearInterval(pollInterval);
+              } else if (status === 'rejected' && submissionStatus !== 'rejected') {
+                setSubmissionStatus('rejected');
+                setError('Your payment was rejected. Please contact support or submit a new payment.');
+                
+                // Clear polling
+                if (pollInterval) clearInterval(pollInterval);
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Error polling fee status:', err);
+        }
+      }, 5000); // Poll every 5 seconds
+    }
+    
+    return () => {
+      if (pollInterval) clearInterval(pollInterval);
+    };
+  }, [submissionStatus, token]);
 
   // Get token from localStorage
   useEffect(() => {
@@ -129,13 +199,22 @@ export default function ApplicationFeesPage() {
       
       if (response.ok) {
         const data = await response.json();
-        if (data.success && data.data && data.data.status === 'pending') {
-          setSubmissionStatus('pending');
-          if (data.data.file_path) {
-            setExistingFile(data.data.file_path);
+        if (data.success && data.data) {
+          const status = data.data.status;
+          
+          if (status === 'pending') {
+            setSubmissionStatus('pending');
+            if (data.data.file_path) {
+              setExistingFile(data.data.file_path);
+            }
+          } else if (status === 'verified' || status === 'approved') {
+            setSubmissionStatus('verified');
+            setSuccess('✓ Payment already verified! Redirecting to next step...');
+            setRedirectCountdown(3); // Auto-redirect after 3 seconds
+          } else if (status === 'rejected') {
+            setSubmissionStatus('rejected');
+            setError('Your previous payment was rejected. Please submit a new payment.');
           }
-        } else if (data.data && (data.data.status === 'verified' || data.data.status === 'approved')) {
-          setSubmissionStatus('verified');
         }
       }
     } catch (err) {
@@ -322,12 +401,12 @@ export default function ApplicationFeesPage() {
     router.push('/application/documents');
   };
 
-  // Handle continue
+  // Handle continue (manual)
   const handleContinue = () => {
-    if (submissionStatus === 'verified' || submissionStatus === 'submitted') {
+    if (submissionStatus === 'verified') {
       router.push('/application/referees');
     } else {
-      setError('Please submit your application fee before continuing');
+      setError('Please wait for payment verification before continuing');
     }
   };
 
@@ -376,6 +455,40 @@ export default function ApplicationFeesPage() {
     );
   };
 
+  // Success Modal for Auto-redirect
+  const SuccessModal = () => {
+    if (!redirectCountdown) return null;
+    
+    return (
+      <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-xl max-w-md w-full shadow-xl text-center p-6">
+          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <CheckCircle className="w-8 h-8 text-green-600" />
+          </div>
+          <h3 className="text-xl font-bold text-gray-800 mb-2">Payment Verified!</h3>
+          <p className="text-gray-600 mb-4">
+            Your application fee has been successfully verified.
+          </p>
+          <p className="text-sm text-gray-500 mb-4">
+            Redirecting to next step in <span className="font-bold text-green-600">{redirectCountdown}</span> seconds...
+          </p>
+          <div className="w-full bg-gray-200 rounded-full h-2 mb-4">
+            <div 
+              className="bg-green-600 rounded-full h-2 transition-all duration-1000"
+              style={{ width: `${(3 - redirectCountdown + 1) * 33.33}%` }}
+            />
+          </div>
+          <button
+            onClick={() => router.push('/application/referees')}
+            className="w-full py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
+          >
+            Continue Now
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -390,6 +503,7 @@ export default function ApplicationFeesPage() {
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <WarningModal />
+      <SuccessModal />
       
       <div className="max-w-4xl mx-auto px-4">
         <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
@@ -423,7 +537,7 @@ export default function ApplicationFeesPage() {
               </div>
             )}
             
-            {success && (
+            {success && !redirectCountdown && (
               <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-start gap-3">
                 <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
                 <p className="text-sm text-green-700">{success}</p>
@@ -532,19 +646,19 @@ export default function ApplicationFeesPage() {
                 <div>
                   <p className="text-sm font-medium text-blue-800">Payment Under Review</p>
                   <p className="text-sm text-blue-700 mt-1">
-                    Your application fee payment is being verified. You will be notified once approved.
+                    Your application fee payment is being verified. You will be automatically redirected once approved.
                   </p>
                 </div>
               </div>
             )}
 
-            {submissionStatus === 'verified' && (
+            {submissionStatus === 'verified' && !redirectCountdown && (
               <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-start gap-3">
                 <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm font-medium text-green-800">Payment Verified</p>
+                  <p className="text-sm font-medium text-green-800">Payment Verified!</p>
                   <p className="text-sm text-green-700 mt-1">
-                    Your application fee has been verified. You can proceed with your application.
+                    Your application fee has been verified. Click Continue to proceed.
                   </p>
                 </div>
               </div>
@@ -718,16 +832,18 @@ export default function ApplicationFeesPage() {
             )}
 
             {/* Navigation Buttons */}
-            <div className={`mt-8 pt-6 border-t border-gray-200 flex justify-between ${submissionStatus === 'verified' ? '' : 'flex-row-reverse'}`}>
-              <button
-                onClick={handleBack}
-                className="px-6 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 flex items-center gap-2 font-medium"
-              >
-                <ChevronLeft className="w-4 h-4" />
-                Back
-              </button>
+            <div className={`mt-8 pt-6 border-t border-gray-200 flex justify-between ${submissionStatus === 'verified' && !redirectCountdown ? '' : 'flex-row-reverse'}`}>
+              {submissionStatus !== 'verified' && (
+                <button
+                  onClick={handleBack}
+                  className="px-6 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 flex items-center gap-2 font-medium"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  Back
+                </button>
+              )}
               
-              {submissionStatus === 'verified' && (
+              {submissionStatus === 'verified' && !redirectCountdown && (
                 <button
                   onClick={handleContinue}
                   className="px-6 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 font-medium"

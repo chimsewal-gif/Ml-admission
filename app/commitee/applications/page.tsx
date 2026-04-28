@@ -1,7 +1,6 @@
-// app/appadmin/applications/page.tsx
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -9,7 +8,8 @@ import {
   FileText, User, Calendar, Eye, Edit, Check, X, MoreVertical, 
   RefreshCw, Brain, Zap, BarChart3, Filter, TrendingUp, 
   Shield, AlertTriangle, Award, Clock, Users, Download,
-  PieChart, Activity, Target, ThumbsUp, ThumbsDown, AlertCircle
+  PieChart, Activity, Target, ThumbsUp, ThumbsDown, AlertCircle,
+  Sparkles
 } from 'lucide-react';
 import { mlService, MLPrediction } from '@/lib/mlService';
 
@@ -108,6 +108,12 @@ export default function ApplicationsPage() {
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
   const [dateRange, setDateRange] = useState<{start: string, end: string}>({ start: '', end: '' });
   const [showFilters, setShowFilters] = useState(false);
+  
+  // Auto-analysis state
+  const [isPolling, setIsPolling] = useState(false);
+  const [lastKnownCount, setLastKnownCount] = useState(0);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isAnalyzingRef = useRef(false);
 
   // Create axios instance with auth header
   const apiClient = useCallback(() => {
@@ -163,10 +169,16 @@ export default function ApplicationsPage() {
 
       setApplications(enrichedData);
       setFilteredApplications(enrichedData);
+      
+      // Update last known count for polling
+      setLastKnownCount(enrichedData.length);
+      
+      return enrichedData;
 
     } catch (err: any) {
       console.error('Failed to fetch applications:', err);
       handleError(err);
+      return [];
     } finally {
       setLoading(false);
     }
@@ -202,7 +214,125 @@ export default function ApplicationsPage() {
     }
   };
 
-  // Auto-process applications based on ML confidence
+  // Auto-analyze a single application
+  const autoAnalyzeApplication = async (application: ApplicantSubmission) => {
+    if (isAnalyzingRef.current) return;
+    if (analysisInProgress.includes(application.id)) return;
+    if (application.ml_prediction) return; // Already analyzed
+    
+    isAnalyzingRef.current = true;
+    
+    try {
+      console.log(`🤖 Auto-analyzing application #${application.id}: ${application.applicant_name}`);
+      
+      const client = apiClient();
+      if (!client) return;
+      
+      // Get prediction from ML service
+      const prediction = await mlService.predictApplication(application);
+      
+      // Save to backend
+      await client.patch(`/applicant-submissions/${application.id}/ml-prediction`, {
+        ml_prediction: prediction,
+        last_analyzed_at: new Date().toISOString()
+      });
+      
+      // Update local state
+      setApplications(prev => prev.map(app => 
+        app.id === application.id ? { 
+          ...app, 
+          ml_prediction: prediction,
+          last_analyzed_at: new Date().toISOString(),
+          priority_level: calculatePriority({ ...app, ml_prediction: prediction })
+        } : app
+      ));
+      
+      console.log(`✅ Auto-analyzed application #${application.id}: ${prediction.decision} (${Math.round(prediction.confidence * 100)}% confidence)`);
+      
+      // Auto-process if confidence is high enough
+      if (prediction.confidence > 0.75) {
+        let newStatus = '';
+        if (prediction.decision === 'approve') {
+          newStatus = 'approved';
+        } else if (prediction.decision === 'reject') {
+          newStatus = 'rejected';
+        }
+        
+        if (newStatus) {
+          await client.patch(`/applicant-submissions/${application.id}/status`, { 
+            status: newStatus,
+            auto_processed: true
+          });
+          
+          setApplications(prev => prev.map(app => 
+            app.id === application.id ? { ...app, status: newStatus, auto_processed: true } : app
+          ));
+          
+          console.log(`⚡ Auto-processed application #${application.id}: ${newStatus}`);
+        }
+      }
+      
+    } catch (err) {
+      console.error(`Failed to auto-analyze application #${application.id}:`, err);
+    } finally {
+      isAnalyzingRef.current = false;
+    }
+  };
+
+  // Check for new unanalyzed applications
+  const checkAndAnalyzeNewApplications = useCallback(async () => {
+    if (isPolling) return;
+    
+    try {
+      const currentApplications = await fetchApplications();
+      
+      if (!currentApplications || currentApplications.length === 0) return;
+      
+      // Find unanalyzed applications (submitted/pending without ML prediction)
+      const unanalyzedApps = currentApplications.filter(app => 
+        (app.status === 'submitted' || app.status === 'pending') && 
+        !app.ml_prediction
+      );
+      
+      if (unanalyzedApps.length > 0) {
+        console.log(`🔍 Found ${unanalyzedApps.length} new unanalyzed application(s)`);
+        
+        // Analyze each new application
+        for (const app of unanalyzedApps) {
+          await autoAnalyzeApplication(app);
+          // Small delay between analyses to avoid overwhelming the server
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        
+        // Refresh the list after analysis
+        await fetchApplications();
+      }
+      
+    } catch (err) {
+      console.error('Error checking for new applications:', err);
+    }
+  }, [fetchApplications, autoAnalyzeApplication]);
+
+  // Start polling for new applications
+  const startPolling = useCallback(() => {
+    if (pollingIntervalRef.current) return;
+    
+    console.log('🔄 Starting auto-analysis polling...');
+    pollingIntervalRef.current = setInterval(() => {
+      checkAndAnalyzeNewApplications();
+    }, 10000); // Check every 10 seconds
+  }, [checkAndAnalyzeNewApplications]);
+
+  // Stop polling
+  const stopPolling = useCallback(() => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+      console.log('⏹️ Stopped auto-analysis polling');
+    }
+  }, []);
+
+  // Auto-process applications based on ML confidence (existing logic)
   const autoProcessOnLoad = useCallback(async () => {
     try {
       setAutoProcessing(true);
@@ -228,7 +358,6 @@ export default function ApplicationsPage() {
       for (const application of pendingApplications) {
         const prediction = application.ml_prediction;
         
-        // Auto-process if confidence is high enough (≥75% as per requirements)
         if (prediction && prediction.confidence > 0.75) {
           let newStatus = '';
           let priorityLevel = 'Medium';
@@ -267,6 +396,14 @@ export default function ApplicationsPage() {
 
   useEffect(() => {
     fetchApplications();
+    
+    // Start auto-analysis polling
+    startPolling();
+    
+    // Cleanup on unmount
+    return () => {
+      stopPolling();
+    };
   }, []);
 
   // Auto-process when applications are loaded
@@ -395,6 +532,12 @@ export default function ApplicationsPage() {
     }
   };
 
+  const startEditing = (id: number, currentStatus: string) => {
+    setEditingStatus({ id, status: currentStatus });
+    setMobileMenuOpen(null);
+    setError(null);
+  };
+
   const exportApplications = () => {
     const headers = ['ID', 'Applicant Name', 'Programme', 'Reference', 'Status', 'Priority', 'ML Decision', 'Confidence', 'Submitted Date'];
     const csvData = filteredApplications.map(app => [
@@ -473,6 +616,12 @@ export default function ApplicationsPage() {
               <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">Applicant Submissions</h1>
               <p className="text-gray-600 text-sm sm:text-base">
                 ML-Powered Application Management Dashboard
+                {isPolling && (
+                  <span className="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                    <Sparkles className="w-3 h-3 animate-pulse mr-1" />
+                    Auto-analyzing new applications...
+                  </span>
+                )}
                 {autoProcessing && (
                   <span className="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                     <RefreshCw className="w-3 h-3 animate-spin mr-1" />
@@ -965,6 +1114,20 @@ export default function ApplicationsPage() {
                       </div>
                     </div>
                   ))}
+                </div>
+              </div>
+
+              {/* Real-time Auto-Analysis Status */}
+              <div className="border-t pt-6 mt-6">
+                <div className="bg-gradient-to-r from-green-50 to-emerald-50 p-4 rounded-lg border border-green-200">
+                  <div className="flex items-center space-x-2 mb-2">
+                    <Sparkles className="w-5 h-5 text-green-600 animate-pulse" />
+                    <h4 className="font-semibold text-green-800">Real-time Auto-Analysis Active</h4>
+                  </div>
+                  <p className="text-sm text-green-700">
+                    New applications are automatically analyzed by the ML model as they come in.
+                    {isPolling && <span className="block mt-1 text-xs">✅ Polling every 10 seconds for new submissions...</span>}
+                  </p>
                 </div>
               </div>
 

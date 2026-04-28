@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { useRouter } from 'next/navigation';
-import { User, Calendar, Eye, Download, X, Search, Filter, Loader, RefreshCw } from 'lucide-react';
+import { User, Calendar, Eye, Download, X, Search, Filter, Loader, RefreshCw, CheckCircle, AlertCircle } from 'lucide-react';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api';
 
@@ -27,6 +27,40 @@ const getToken = () => {
   return null;
 };
 
+// Centered Toast Component
+const Toast = ({ message, type, onClose }: { message: string; type: 'success' | 'error' | 'info'; onClose: () => void }) => {
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      onClose();
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  const icons = {
+    success: <CheckCircle className="w-5 h-5 text-green-600" />,
+    error: <AlertCircle className="w-5 h-5 text-red-600" />,
+    info: <AlertCircle className="w-5 h-5 text-blue-600" />
+  };
+
+  const colors = {
+    success: 'bg-green-100 border-green-300 text-green-800',
+    error: 'bg-red-100 border-red-300 text-red-800',
+    info: 'bg-blue-100 border-blue-300 text-blue-800'
+  };
+
+  return (
+    <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50 animate-in fade-in zoom-in duration-300">
+      <div className={`flex items-center gap-3 px-6 py-4 rounded-xl shadow-2xl border ${colors[type]} min-w-[300px] max-w-[500px]`}>
+        {icons[type]}
+        <p className="text-sm font-medium flex-1">{message}</p>
+        <button onClick={onClose} className="ml-2 hover:opacity-70 transition-opacity">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  );
+};
+
 export default function FeesPage() {
   const router = useRouter();
   const [fees, setFees] = useState<Fee[]>([]);
@@ -36,10 +70,18 @@ export default function FeesPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [error, setError] = useState('');
+  
+  // Toast state
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedFee, setSelectedFee] = useState<Fee | null>(null);
+
+  // Show toast message
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    setToast({ message, type });
+  };
 
   // Create axios instance with auth header
   const apiClient = () => {
@@ -98,18 +140,22 @@ export default function FeesPage() {
       }
       
       setFees(feesData);
+      showToast(`Loaded ${feesData.length} payment records`, 'success');
     } catch (err: any) {
       console.error('Failed to fetch fees:', err);
       
       if (err.response?.status === 401) {
         setError('Session expired. Please log in again.');
+        showToast('Session expired. Please log in again.', 'error');
         localStorage.removeItem('token');
         localStorage.removeItem('user');
       } else if (err.response?.status === 404) {
         setError('Fees endpoint not found. Please check if the backend is running.');
+        showToast('Fees endpoint not found. Check backend connection.', 'error');
       } else {
         const errorMessage = err.response?.data?.message || 'Failed to fetch fees';
         setError(errorMessage);
+        showToast(errorMessage, 'error');
       }
     } finally {
       setLoading(false);
@@ -182,6 +228,7 @@ export default function FeesPage() {
       const token = getToken();
       if (!token) {
         setError('Please login to update status');
+        showToast('Please login to update status', 'error');
         setUpdatingId(null);
         return;
       }
@@ -189,6 +236,7 @@ export default function FeesPage() {
       const client = apiClient();
       if (!client) {
         setError('Authentication error');
+        showToast('Authentication error', 'error');
         setUpdatingId(null);
         return;
       }
@@ -203,7 +251,10 @@ export default function FeesPage() {
       if (response.data.success) {
         await fetchFees(false);
         closeModal();
-        alert(`Status updated to ${newStatus} successfully!`);
+        
+        // Show success toast
+        const statusMessage = newStatus === 'accepted' ? 'accepted ✅' : 'rejected ❌';
+        showToast(`${selectedFee.applicant_name}'s payment has been ${statusMessage}`, 'success');
       } else {
         throw new Error(response.data.message || 'Update failed');
       }
@@ -213,15 +264,18 @@ export default function FeesPage() {
       
       if (err.response?.status === 401) {
         setError('Session expired. Please log in again.');
+        showToast('Session expired. Please log in again.', 'error');
         localStorage.removeItem('token');
         localStorage.removeItem('user');
       } else if (err.response?.status === 404) {
         setError('Fee record not found. It may have been deleted.');
+        showToast('Fee record not found', 'error');
       } else {
         const errorMessage = err.response?.data?.message || 
                             err.response?.data?.error || 
                             'Failed to update status. Please try again.';
         setError(errorMessage);
+        showToast(errorMessage, 'error');
       }
     } finally {
       setUpdatingId(null);
@@ -241,6 +295,15 @@ export default function FeesPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-green-50 p-4 sm:p-6">
+      {/* Centered Toast Notification */}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
+
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-6">

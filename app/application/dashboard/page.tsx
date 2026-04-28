@@ -49,6 +49,7 @@ export default function DashboardPage() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [deadlines, setDeadlines] = useState<Deadline[]>([]);
+  const [debugInfo, setDebugInfo] = useState<any>(null);
 
   const getToken = () => {
     if (typeof window !== 'undefined') {
@@ -120,7 +121,6 @@ export default function DashboardPage() {
       }
     } catch (error) {
       console.error('Error loading notifications:', error);
-      // Fallback to empty array
       setNotifications([]);
     }
   };
@@ -130,8 +130,6 @@ export default function DashboardPage() {
     if (!token) return;
 
     try {
-      // You can create a deadlines endpoint or use mock data for now
-      // For now, we'll use mock deadlines until you create the backend endpoint
       const mockDeadlines = [
         {
           id: 1,
@@ -156,7 +154,6 @@ export default function DashboardPage() {
         }
       ];
       
-      // Try to fetch from backend if endpoint exists
       try {
         const response = await fetch(`${API_BASE_URL}/deadlines/`, {
           headers: {
@@ -176,7 +173,6 @@ export default function DashboardPage() {
         console.log('Deadlines endpoint not found, using mock data');
       }
       
-      // Fallback to mock deadlines
       setDeadlines(mockDeadlines);
       
     } catch (error) {
@@ -199,7 +195,6 @@ export default function DashboardPage() {
       });
 
       if (response.ok) {
-        // Update local state
         setNotifications(prev => 
           prev.map(notif => 
             notif.id === notificationId ? { ...notif, is_read: true } : notif
@@ -226,7 +221,6 @@ export default function DashboardPage() {
       });
 
       if (response.ok) {
-        // Update local state
         setNotifications(prev => 
           prev.map(notif => ({ ...notif, is_read: true }))
         );
@@ -242,6 +236,7 @@ export default function DashboardPage() {
     if (!token) return;
 
     try {
+      // 1. Personal Info Check
       const personalInfoRes = await fetch(`${API_BASE_URL}/personal-details/`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -249,12 +244,14 @@ export default function DashboardPage() {
       const hasPersonalInfo = personalData.success && personalData.data && 
         personalData.data.first_name && personalData.data.last_name && personalData.data.email;
 
+      // 2. Academic Background Check
       const subjectsRes = await fetch(`${API_BASE_URL}/subject-records/`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const subjectsData = await subjectsRes.json();
       const hasSubjects = subjectsData.success && subjectsData.data && subjectsData.data.length > 0;
 
+      // 3. Documents Check
       const userRes = await fetch(`${API_BASE_URL}/me/`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -270,18 +267,68 @@ export default function DashboardPage() {
           (docsData.data.msce || docsData.data.id_card);
       }
 
+      // 4. Program Selection Check
       const programmeRes = await fetch(`${API_BASE_URL}/applicants/programme/selection/`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const programmeData = await programmeRes.json();
       const hasProgramme = programmeData.success && programmeData.data && programmeData.data.id;
 
-      const paymentRes = await fetch(`${API_BASE_URL}/application-fees/`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+      // 5. Payment Check - FIXED VERSION
+      let hasPayment = false;
+      let paymentDebug = {};
+
+      try {
+        const paymentRes = await fetch(`${API_BASE_URL}/application-fees/`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const paymentData = await paymentRes.json();
+        
+        console.log('Payment API Response:', paymentData);
+        paymentDebug = paymentData;
+        
+        // Check if payment exists in response
+        if (paymentData.success && paymentData.data) {
+          // Check if deposit_slip_path or file_path exists
+          if (paymentData.data.deposit_slip_path || paymentData.data.file_path) {
+            hasPayment = true;
+          }
+          // Check if status indicates payment is complete
+          if (paymentData.data.status === 'verified' || 
+              paymentData.data.status === 'approved' || 
+              paymentData.data.status === 'accepted') {
+            hasPayment = true;
+          }
+          // If there's a file_name, consider payment as started/complete
+          if (paymentData.data.file_name || paymentData.data.deposit_slip_path) {
+            hasPayment = true;
+          }
+        }
+      } catch (paymentErr) {
+        console.error('Error checking payment:', paymentErr);
+      }
+
+      // Also check FeePayment endpoint as fallback
+      if (!hasPayment) {
+        try {
+          const feePaymentRes = await fetch(`${API_BASE_URL}/fee-payments/`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const feePaymentData = await feePaymentRes.json();
+          
+          if (feePaymentData.success && feePaymentData.data && feePaymentData.data.deposit_slip_path) {
+            hasPayment = true;
+          }
+        } catch (feeErr) {
+          console.log('FeePayment endpoint not available');
+        }
+      }
+
+      setDebugInfo({
+        hasPayment,
+        paymentData: paymentDebug,
+        timestamp: new Date().toISOString()
       });
-      const paymentData = await paymentRes.json();
-      const hasPayment = paymentData.success && paymentData.data && 
-        (paymentData.data.status === 'verified' || paymentData.data.status === 'approved');
 
       setSectionProgress({
         personalInfo: hasPersonalInfo,
@@ -324,7 +371,7 @@ export default function DashboardPage() {
       title: 'Personal Information',
       description: 'Your basic personal details',
       icon: User,
-      href: '/application/select-type',
+      href: '/application/personal-details',
       color: 'blue'
     },
     {
@@ -348,7 +395,7 @@ export default function DashboardPage() {
       title: 'Program Selection',
       description: 'Choose your desired program',
       icon: FileText,
-      href: '/application/select-type',
+      href: '/application/program-selection',
       color: 'orange'
     },
     {
@@ -364,7 +411,6 @@ export default function DashboardPage() {
   const progress = calculateOverallProgress();
   const isSubmitted = submissionStatus.is_submitted;
 
-  // Calculate stats for the cards
   const completedSections = Object.values(sectionProgress).filter(Boolean).length;
   const stats = {
     active: completedSections,
@@ -373,17 +419,23 @@ export default function DashboardPage() {
     messages: unreadCount
   };
 
-  // Circle Progress Component
-  const CircleProgress = ({ percentage, size = 120 }: { percentage: number; size?: number }) => {
+  // Circle Progress Component with GREEN color
+  const CircleProgress = ({ percentage, size = 140 }: { percentage: number; size?: number }) => {
     const radius = (size - 20) / 2;
     const circumference = 2 * Math.PI * radius;
     const offset = circumference - (percentage / 100) * circumference;
-    const strokeWidth = 8;
+    const strokeWidth = 12;
     
+    const getGreenColor = () => {
+      if (percentage >= 80) return '#10b981';
+      if (percentage >= 50) return '#22c55e';
+      if (percentage >= 20) return '#34d399';
+      return '#6ee7b7';
+    };
+
     return (
       <div className="relative" style={{ width: size, height: size }}>
         <svg className="transform -rotate-90" width={size} height={size}>
-          {/* Background circle */}
           <circle
             cx={size / 2}
             cy={size / 2}
@@ -392,13 +444,12 @@ export default function DashboardPage() {
             stroke="#e5e7eb"
             strokeWidth={strokeWidth}
           />
-          {/* Progress circle */}
           <circle
             cx={size / 2}
             cy={size / 2}
             r={radius}
             fill="none"
-            stroke={percentage === 100 ? '#22c55e' : percentage >= 50 ? '#3b82f6' : '#eab308'}
+            stroke={getGreenColor()}
             strokeWidth={strokeWidth}
             strokeDasharray={circumference}
             strokeDashoffset={offset}
@@ -408,13 +459,12 @@ export default function DashboardPage() {
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <span className="text-3xl font-bold text-gray-900">{percentage}%</span>
-          <span className="text-xs text-gray-500 mt-1">Complete</span>
+          <span className="text-xs text-green-600 font-medium mt-1">Complete</span>
         </div>
       </div>
     );
   };
 
-  // Get icon based on notification type
   const getNotificationIcon = (type: string) => {
     switch (type) {
       case 'success':
@@ -446,13 +496,10 @@ export default function DashboardPage() {
     );
   }
 
-  // If application is already submitted
   if (isSubmitted) {
     return (
       <div className="p-4 md:p-8">
         <div className="max-w-4xl mx-auto">
-          
-          
           <div className="bg-green-50 rounded-2xl border border-green-200 p-8 text-center mt-8">
             <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
             <h1 className="text-2xl font-bold text-gray-900 mb-2">Application Submitted!</h1>
@@ -480,8 +527,6 @@ export default function DashboardPage() {
   return (
     <div className="p-4 md:p-8">
       <div className="max-w-5xl mx-auto">
-      
-
         {/* Welcome Section */}
         <div className="mb-8">
           <div className="flex items-center justify-between flex-wrap gap-4">
@@ -558,12 +603,10 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex flex-col md:flex-row items-center justify-between gap-8">
-            {/* Circle Progress */}
             <div className="flex-shrink-0">
               <CircleProgress percentage={progress} size={140} />
             </div>
 
-            {/* Stats Cards */}
             <div className="flex-1 grid grid-cols-2 gap-4 w-full">
               <div className="bg-gray-50 rounded-lg p-4 text-center">
                 <p className="text-2xl font-bold text-gray-900">
@@ -582,7 +625,6 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Progress Message */}
           {progress > 0 && progress < 100 && (
             <div className="mt-6 pt-4 border-t border-gray-100">
               <p className="text-sm text-gray-600 text-center">

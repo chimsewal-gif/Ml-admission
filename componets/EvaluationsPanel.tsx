@@ -300,7 +300,7 @@ export function EvaluationsPanel() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
                         <button 
-                          onClick={() => router.push(`/committee/applicants/${evaluation.applicantId}`)}
+                          onClick={() => router.push(`/commitee/applicants/${evaluation.applicantId}`)}
                           className="text-blue-600 hover:text-blue-900 flex items-center transition-colors"
                         >
                           <Eye className="h-4 w-4 mr-1" />
