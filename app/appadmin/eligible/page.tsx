@@ -4,7 +4,8 @@ import { useRouter } from "next/navigation";
 import { 
   BookOpen, CheckCircle, GraduationCap, Clock, Building2, AlertCircle, 
   X, ChevronDown, Award, Star, TrendingUp, Brain, Sparkles, 
-  Shield, Loader2, ThumbsUp, Target, Zap, BarChart3, Eye, EyeOff, Plus, Trash2, Search
+  Shield, Loader2, ThumbsUp, Target, Zap, BarChart3, Eye, EyeOff, 
+  Plus, Trash2, Search, Lock, Unlock, History, Edit2
 } from "lucide-react";
 import axios from "axios";
 import { motion, AnimatePresence } from "framer-motion";
@@ -20,11 +21,42 @@ type Programme = {
   category?: string;
   code?: string;
   is_active?: boolean;
+  min_points?: number;
+  required_credits?: number;
+  required_subjects?: string[];
 };
 
 type Choice = {
   id: number;
   programme: Programme | null;
+  eligibility_status?: EligibilityStatus;
+};
+
+type EligibilityStatus = {
+  is_eligible: boolean;
+  status: 'ELIGIBLE' | 'INELIGIBLE' | 'PENDING_REVIEW' | 'OVERRIDDEN';
+  checks: {
+    points_check: { passed: boolean; required: number; actual: number; message: string };
+    credits_check: { passed: boolean; required: number; actual: number; message: string };
+    subjects_check: { passed: boolean; required: string[]; missing: string[]; message: string };
+  };
+  override?: {
+    allowed: boolean;
+    reason?: string;
+    overridden_by?: string;
+    overridden_at?: string;
+  };
+};
+
+type OverrideHistory = {
+  id: string;
+  choice_id: number;
+  programme_id: number;
+  programme_name: string;
+  action: 'OVERRIDE' | 'REVERT';
+  reason: string;
+  overridden_by: string;
+  timestamp: string;
 };
 
 type MLRecommendation = {
@@ -95,7 +127,6 @@ const StyledSelect = ({
 
   return (
     <div ref={dropdownRef} className="relative w-full">
-      {/* Dropdown Trigger Button */}
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
@@ -111,7 +142,6 @@ const StyledSelect = ({
         <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
-      {/* Dropdown Menu */}
       <AnimatePresence>
         {isOpen && (
           <motion.div
@@ -121,7 +151,6 @@ const StyledSelect = ({
             transition={{ duration: 0.15 }}
             className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden"
           >
-            {/* Search Bar */}
             <div className="p-2 border-b border-gray-100">
               <div className="relative">
                 <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -136,7 +165,6 @@ const StyledSelect = ({
               </div>
             </div>
 
-            {/* Options List */}
             <div className="max-h-60 overflow-y-auto">
               {filteredOptions.length === 0 ? (
                 <div className="p-4 text-center text-gray-400 text-sm">
@@ -172,6 +200,222 @@ const StyledSelect = ({
   );
 };
 
+// Eligibility Check Component
+const EligibilityBadge = ({ status }: { status: EligibilityStatus }) => {
+  if (!status) return null;
+  
+  const config = {
+    ELIGIBLE: { color: 'bg-green-100 text-green-700', icon: CheckCircle, text: 'Eligible' },
+    INELIGIBLE: { color: 'bg-red-100 text-red-700', icon: X, text: 'Not Eligible' },
+    PENDING_REVIEW: { color: 'bg-yellow-100 text-yellow-700', icon: AlertCircle, text: 'Pending Review' },
+    OVERRIDDEN: { color: 'bg-blue-100 text-blue-700', icon: Shield, text: 'Overridden (Approved)' }
+  };
+  
+  const { color, icon: Icon, text } = config[status.status];
+  
+  return (
+    <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${color}`}>
+      <Icon className="w-3 h-3" />
+      <span>{text}</span>
+    </div>
+  );
+};
+
+// Eligibility Details Panel
+const EligibilityDetails = ({ 
+  eligibility, 
+  choiceId,
+  programmeName,
+  onOverride 
+}: { 
+  eligibility: EligibilityStatus;
+  choiceId: number;
+  programmeName: string;
+  onOverride: (choiceId: number, reason: string) => void;
+}) => {
+  const [showOverrideModal, setShowOverrideModal] = useState(false);
+  const [overrideReason, setOverrideReason] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
+  
+  useEffect(() => {
+    // Check if user is admin (you can adjust this based on your role system)
+    const user = localStorage.getItem('user');
+    if (user) {
+      try {
+        const userData = JSON.parse(user);
+        setIsAdmin(userData.role === 'admin' || userData.role === 'registry_officer');
+      } catch (e) {}
+    }
+  }, []);
+  
+  const handleOverride = () => {
+    if (overrideReason.trim()) {
+      onOverride(choiceId, overrideReason);
+      setShowOverrideModal(false);
+      setOverrideReason('');
+    }
+  };
+  
+  const checks = eligibility.checks;
+  
+  return (
+    <div className="mt-3 p-3 bg-gray-50 rounded-lg">
+      <div className="flex items-center justify-between mb-2">
+        <h4 className="text-sm font-medium text-gray-700">Eligibility Assessment</h4>
+        <EligibilityBadge status={eligibility} />
+      </div>
+      
+      <div className="space-y-2">
+        {/* Points Check */}
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-gray-600">Points Requirement:</span>
+          <div className="flex items-center gap-2">
+            <span className="text-gray-700">
+              {checks.points_check.actual} / {checks.points_check.required} points
+            </span>
+            {checks.points_check.passed ? (
+              <CheckCircle className="w-3.5 h-3.5 text-green-500" />
+            ) : (
+              <X className="w-3.5 h-3.5 text-red-500" />
+            )}
+          </div>
+        </div>
+        
+        {/* Credits Check */}
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-gray-600">Credits Requirement:</span>
+          <div className="flex items-center gap-2">
+            <span className="text-gray-700">
+              {checks.credits_check.actual} / {checks.credits_check.required} credits
+            </span>
+            {checks.credits_check.passed ? (
+              <CheckCircle className="w-3.5 h-3.5 text-green-500" />
+            ) : (
+              <X className="w-3.5 h-3.5 text-red-500" />
+            )}
+          </div>
+        </div>
+        
+        {/* Subjects Check */}
+        <div className="text-xs">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-gray-600">Required Subjects:</span>
+            {checks.subjects_check.passed ? (
+              <CheckCircle className="w-3.5 h-3.5 text-green-500" />
+            ) : (
+              <X className="w-3.5 h-3.5 text-red-500" />
+            )}
+          </div>
+          {checks.subjects_check.required.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {checks.subjects_check.required.map(subject => (
+                <span
+                  key={subject}
+                  className={`text-xs px-1.5 py-0.5 rounded ${
+                    checks.subjects_check.missing.includes(subject)
+                      ? 'bg-red-100 text-red-700'
+                      : 'bg-green-100 text-green-700'
+                  }`}
+                >
+                  {subject}
+                </span>
+              ))}
+            </div>
+          )}
+          {checks.subjects_check.missing.length > 0 && (
+            <p className="text-red-600 mt-1 text-xs">
+              Missing: {checks.subjects_check.missing.join(', ')}
+            </p>
+          )}
+        </div>
+        
+        {/* Override Info */}
+        {eligibility.override && (
+          <div className="mt-2 pt-2 border-t border-gray-200 text-xs">
+            <div className="flex items-center gap-2 text-blue-600">
+              <Shield className="w-3 h-3" />
+              <span>Overridden by {eligibility.override.overridden_by}</span>
+            </div>
+            {eligibility.override.reason && (
+              <p className="text-gray-500 mt-1">Reason: {eligibility.override.reason}</p>
+            )}
+          </div>
+        )}
+        
+        {/* Override Button (Admin only) */}
+        {isAdmin && eligibility.status === 'INELIGIBLE' && (
+          <button
+            onClick={() => setShowOverrideModal(true)}
+            className="mt-2 w-full px-3 py-1.5 bg-blue-50 text-blue-600 text-xs rounded-lg hover:bg-blue-100 transition-colors flex items-center justify-center gap-1"
+          >
+            <Unlock className="w-3 h-3" />
+            Manual Override (Admin)
+          </button>
+        )}
+      </div>
+      
+      {/* Override Modal */}
+      <AnimatePresence>
+        {showOverrideModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            onClick={() => setShowOverrideModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-xl shadow-2xl max-w-md w-full"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="border-b border-gray-200 p-4">
+                <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                  <Shield className="w-5 h-5 text-blue-600" />
+                  Manual Override
+                </h3>
+              </div>
+              
+              <div className="p-4">
+                <p className="text-sm text-gray-600 mb-3">
+                  You are about to override the eligibility decision for <strong>{programmeName}</strong>.
+                  Please provide a reason for this override.
+                </p>
+                
+                <textarea
+                  value={overrideReason}
+                  onChange={(e) => setOverrideReason(e.target.value)}
+                  placeholder="Enter reason for override (e.g., exceptional circumstances, special consideration, etc.)"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                  rows={3}
+                />
+              </div>
+              
+              <div className="border-t border-gray-200 p-4 flex justify-end gap-3">
+                <button
+                  onClick={() => setShowOverrideModal(false)}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleOverride}
+                  disabled={!overrideReason.trim()}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                  Confirm Override
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
 // Helper function for rank suffix
 const getRankSuffix = (rank: number): string => {
   if (rank === 1) return "st";
@@ -180,7 +424,7 @@ const getRankSuffix = (rank: number): string => {
   return "th";
 };
 
-// Map application types to programme categories based on the select-type page
+// Map application types to programme categories
 const getCategoryFromApplicationType = (applicationType: string): string[] => {
   const categoryMap: Record<string, string[]> = {
     'degree': ['Bachelor', 'Undergraduate', 'Degree', 'BSc', 'BA', 'BCom', 'Generic', 'Upgrading'],
@@ -188,7 +432,6 @@ const getCategoryFromApplicationType = (applicationType: string): string[] => {
     'phd': ['PhD', 'Doctorate', 'Doctoral', 'DPhil', 'Research'],
     'diploma': ['Diploma', 'Certificate', 'Undergraduate'],
     'certificate': ['Certificate', 'Short Course', 'Foundation', 'Training'],
-    // Legacy support
     'odl': ['ODL', 'Open and Distance Learning', 'Distance', 'Bachelor'],
     'postgraduate': ['Postgraduate', 'Master', 'Doctoral', 'PhD', 'Masters'],
     'international': ['International', 'Bachelor', 'Undergraduate', 'Postgraduate']
@@ -196,7 +439,6 @@ const getCategoryFromApplicationType = (applicationType: string): string[] => {
   return categoryMap[applicationType] || ['Bachelor', 'Undergraduate', 'Diploma'];
 };
 
-// Get readable application type name
 const getApplicationTypeName = (type: string): string => {
   const names: Record<string, string> = {
     'degree': "Bachelor's Degree",
@@ -215,12 +457,12 @@ export default function ProgrammesPage() {
   const [programmes, setProgrammes] = useState<Programme[]>([]);
   const [filteredProgrammes, setFilteredProgrammes] = useState<Programme[]>([]);
   const [choices, setChoices] = useState<Choice[]>([
-    { id: 1, programme: null },
-    { id: 2, programme: null },
-    { id: 3, programme: null },
-    { id: 4, programme: null },
-    { id: 5, programme: null },
-    { id: 6, programme: null },
+    { id: 1, programme: null, eligibility_status: undefined },
+    { id: 2, programme: null, eligibility_status: undefined },
+    { id: 3, programme: null, eligibility_status: undefined },
+    { id: 4, programme: null, eligibility_status: undefined },
+    { id: 5, programme: null, eligibility_status: undefined },
+    { id: 6, programme: null, eligibility_status: undefined },
   ]);
   const [savedChoices, setSavedChoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -228,6 +470,8 @@ export default function ProgrammesPage() {
   const [notification, setNotification] = useState("");
   const [notificationType, setNotificationType] = useState<"success" | "error" | "warning">("success");
   const [applicationType, setApplicationType] = useState<string>("");
+  const [msceResults, setMsceResults] = useState<any[]>([]);
+  const [overrideHistory, setOverrideHistory] = useState<OverrideHistory[]>([]);
   
   // ML Recommendations State
   const [mlRecommendations, setMlRecommendations] = useState<MLRecommendation[]>([]);
@@ -257,25 +501,181 @@ export default function ProgrammesPage() {
     return '';
   };
 
-  // Fetch MSCE results for ML recommendations
+  // Fetch MSCE results for eligibility checking
   const fetchMSCEResults = async () => {
     try {
       const token = getToken();
-      if (!token) return null;
+      if (!token) return [];
       
       const response = await axios.get(`${API_BASE_URL}/subject-records/`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       
       const subjects = response.data.data || response.data || [];
-      return subjects.filter((s: any) => s.qualification === 'MSCE (Malawi School Certificate of Education)');
+      const msceSubjects = subjects.filter((s: any) => s.qualification === 'MSCE (Malawi School Certificate of Education)');
+      setMsceResults(msceSubjects);
+      return msceSubjects;
     } catch (err) {
       console.error("Failed to fetch MSCE results:", err);
-      return null;
+      return [];
     }
   };
 
-  // Get ML recommendations (called when modal opens)
+  // Check eligibility for a programme based on MSCE results
+  const checkEligibility = async (programme: Programme, msceSubjects: any[]): Promise<EligibilityStatus> => {
+    if (!programme || !msceSubjects.length) {
+      return {
+        is_eligible: false,
+        status: 'PENDING_REVIEW',
+        checks: {
+          points_check: { passed: false, required: 0, actual: 0, message: 'No MSCE results found' },
+          credits_check: { passed: false, required: 0, actual: 0, message: 'No MSCE results found' },
+          subjects_check: { passed: false, required: [], missing: [], message: 'No MSCE results found' }
+        }
+      };
+    }
+    
+    // Grade to points mapping
+    const gradePoints: Record<string, number> = {
+      '1': 1, 'A': 1, 'A*': 1,
+      '2': 2, 'B': 2, 'B+': 2,
+      '3': 3, 'C': 3, 'C+': 3,
+      '4': 4, 'D': 4, 'D+': 4,
+      '5': 5, 'E': 5,
+      '6': 6, 'F': 6, 'U': 9
+    };
+    
+    // Calculate total points (lower is better)
+    let totalPoints = 0;
+    let subjectNames: string[] = [];
+    
+    for (const subject of msceSubjects) {
+      const grade = subject.grade?.toString().toUpperCase() || '5';
+      const points = gradePoints[grade] || 5;
+      totalPoints += points;
+      subjectNames.push(subject.subject?.toLowerCase() || '');
+    }
+    
+    const numSubjects = msceSubjects.length;
+    const requiredCredits = programme.required_credits || 6;
+    const minPoints = programme.min_points || 30;
+    const requiredSubjects = programme.required_subjects || ['English', 'Mathematics'];
+    
+    // Points check (lower points is better)
+    const pointsPassed = totalPoints <= minPoints;
+    
+    // Credits check
+    const creditsPassed = numSubjects >= requiredCredits;
+    
+    // Subjects check
+    const missingSubjects: string[] = [];
+    for (const req of requiredSubjects) {
+      const found = subjectNames.some(s => s.includes(req.toLowerCase()));
+      if (!found) {
+        missingSubjects.push(req);
+      }
+    }
+    const subjectsPassed = missingSubjects.length === 0;
+    
+    const isEligible = pointsPassed && creditsPassed && subjectsPassed;
+    
+    return {
+      is_eligible: isEligible,
+      status: isEligible ? 'ELIGIBLE' : 'INELIGIBLE',
+      checks: {
+        points_check: {
+          passed: pointsPassed,
+          required: minPoints,
+          actual: totalPoints,
+          message: pointsPassed ? 'Points requirement met' : `Total points (${totalPoints}) exceed maximum (${minPoints})`
+        },
+        credits_check: {
+          passed: creditsPassed,
+          required: requiredCredits,
+          actual: numSubjects,
+          message: creditsPassed ? 'Credit requirement met' : `Need ${requiredCredits - numSubjects} more subject(s)`
+        },
+        subjects_check: {
+          passed: subjectsPassed,
+          required: requiredSubjects,
+          missing: missingSubjects,
+          message: subjectsPassed ? 'All required subjects present' : `Missing: ${missingSubjects.join(', ')}`
+        }
+      }
+    };
+  };
+
+  // Check eligibility for all selected choices
+  const checkAllEligibility = async () => {
+    const msceSubjects = await fetchMSCEResults();
+    const updatedChoices = [...choices];
+    
+    for (let i = 0; i < updatedChoices.length; i++) {
+      if (updatedChoices[i].programme) {
+        const eligibility = await checkEligibility(updatedChoices[i].programme!, msceSubjects);
+        updatedChoices[i].eligibility_status = eligibility;
+      }
+    }
+    
+    setChoices(updatedChoices);
+  };
+
+  // Handle manual override
+  const handleOverride = async (choiceId: number, reason: string) => {
+    const choice = choices.find(c => c.id === choiceId);
+    if (!choice?.programme) return;
+    
+    const user = localStorage.getItem('user');
+    let userName = 'Admin';
+    if (user) {
+      try {
+        const userData = JSON.parse(user);
+        userName = userData.name || userData.email || 'Admin';
+      } catch (e) {}
+    }
+    
+    const updatedChoices = choices.map(c => {
+      if (c.id === choiceId && c.eligibility_status) {
+        return {
+          ...c,
+          eligibility_status: {
+            ...c.eligibility_status,
+            status: 'OVERRIDDEN',
+            is_eligible: true,
+            override: {
+              allowed: true,
+              reason: reason,
+              overridden_by: userName,
+              overridden_at: new Date().toISOString()
+            }
+          }
+        };
+      }
+      return c;
+    });
+    
+    setChoices(updatedChoices);
+    
+    // Save to override history
+    const historyEntry: OverrideHistory = {
+      id: Date.now().toString(),
+      choice_id: choiceId,
+      programme_id: choice.programme.id,
+      programme_name: choice.programme.name,
+      action: 'OVERRIDE',
+      reason: reason,
+      overridden_by: userName,
+      timestamp: new Date().toISOString()
+    };
+    
+    setOverrideHistory(prev => [...prev, historyEntry]);
+    
+    setNotification(`✓ Override approved for ${choice.programme.name}`);
+    setNotificationType("success");
+    setTimeout(() => setNotification(""), 3000);
+  };
+
+  // Fetch ML recommendations
   const getMLRecommendations = async () => {
     const token = getToken();
     if (!token) return;
@@ -283,7 +683,6 @@ export default function ProgrammesPage() {
     setIsLoadingRecommendations(true);
     
     try {
-      // Fetch MSCE results
       const msceResults = await fetchMSCEResults();
       
       if (!msceResults || msceResults.length === 0) {
@@ -294,26 +693,22 @@ export default function ProgrammesPage() {
         return;
       }
       
-      // Format subjects for ML model
       const formattedSubjects = msceResults.map((s: any) => ({
         subject: s.subject,
         grade: s.grade
       }));
       
-      // Get recommendations from ML endpoint - request ALL programmes
       const response = await axios.post(
         `${API_BASE_URL}/ml/recommend-programmes/`,
         {
           subjects: formattedSubjects,
-          top_n: 100,  // Request up to 100 recommendations
+          top_n: 100,
           programme_type: applicationType === 'phd' ? 'research' : applicationType === 'masters' ? 'postgraduate' : 'all'
         },
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
       
       if (response.data.success && response.data.recommendations) {
-        // Show ALL recommendations without filtering or slicing
-        // Sort by fit_score descending to show best matches first
         const allRecommendations = response.data.recommendations.sort((a: MLRecommendation, b: MLRecommendation) => b.fit_score - a.fit_score);
         setMlRecommendations(allRecommendations);
         setMlStudentStats(response.data.student_stats);
@@ -322,16 +717,11 @@ export default function ProgrammesPage() {
         if (allRecommendations.length === 0) {
           setNotification("No programme matches found based on your results.");
           setNotificationType("warning");
-          setTimeout(() => setNotification(""), 5000);
         } else {
           setNotification(`🎯 Found ${allRecommendations.length} programme recommendations for you!`);
           setNotificationType("success");
-          setTimeout(() => setNotification(""), 4000);
         }
-      } else {
-        setNotification("Could not generate recommendations at this time.");
-        setNotificationType("error");
-        setTimeout(() => setNotification(""), 5000);
+        setTimeout(() => setNotification(""), 4000);
       }
     } catch (err) {
       console.error("Failed to get ML recommendations:", err);
@@ -343,7 +733,6 @@ export default function ProgrammesPage() {
     }
   };
 
-  // Open AI modal and fetch recommendations
   const openAIModal = () => {
     setShowAIModal(true);
     if (!hasLoadedRecommendations) {
@@ -351,14 +740,11 @@ export default function ProgrammesPage() {
     }
   };
 
-  // Close AI modal
   const closeAIModal = () => {
     setShowAIModal(false);
   };
 
-  // Add recommendation to choices
   const addRecommendationToChoice = (recommendation: MLRecommendation) => {
-    // Find the first empty choice
     const emptyIndex = choices.findIndex(c => !c.programme);
     if (emptyIndex !== -1) {
       updateChoice(choices[emptyIndex].id, recommendation.id);
@@ -404,8 +790,6 @@ export default function ProgrammesPage() {
       }
 
       setProgrammes(allProgrammes);
-      
-      // Filter programmes based on application type
       filterProgrammesByType(allProgrammes, applicationType);
       
     } catch (err: any) {
@@ -437,26 +821,22 @@ export default function ProgrammesPage() {
     
     const allowedCategories = getCategoryFromApplicationType(type);
     
-    // Filter programmes that match the application type
     const filtered = allProgrammes.filter(programme => {
       const category = programme.category?.toLowerCase() || '';
       const name = programme.name?.toLowerCase() || '';
       const department = programme.department?.toLowerCase() || '';
-      const programmeType = programme.type?.toLowerCase() || '';
       
-      // Check if programme matches any of the allowed categories
       return allowedCategories.some(allowed => 
         category.includes(allowed.toLowerCase()) ||
         name.includes(allowed.toLowerCase()) ||
-        department.includes(allowed.toLowerCase()) ||
-        programmeType.includes(allowed.toLowerCase())
+        department.includes(allowed.toLowerCase())
       );
     });
     
     setFilteredProgrammes(filtered);
     
     if (filtered.length === 0) {
-      setNotification(`No ${getApplicationTypeName(type)} programmes found. Please contact support.`);
+      setNotification(`No programmes found for ${getApplicationTypeName(type)}. Please contact support.`);
       setNotificationType("warning");
       setTimeout(() => setNotification(""), 5000);
     }
@@ -479,7 +859,6 @@ export default function ProgrammesPage() {
         const savedChoicesData = response.data.choices;
         setSavedChoices(savedChoicesData);
         
-        // Map the saved choices to the choices state
         const newChoices = [...choices];
         savedChoicesData.forEach((savedChoice: any) => {
           const index = savedChoice.choice_number - 1;
@@ -492,11 +871,15 @@ export default function ProgrammesPage() {
                 department: savedChoice.department,
                 duration: savedChoice.duration,
                 category: savedChoice.category
-              }
+              },
+              eligibility_status: undefined
             };
           }
         });
         setChoices(newChoices);
+        
+        // Check eligibility after loading saved choices
+        setTimeout(() => checkAllEligibility(), 500);
       }
     } catch (err: any) {
       if (err.response?.status === 422) {
@@ -507,7 +890,6 @@ export default function ProgrammesPage() {
     }
   };
 
-  // Save choices to backend (actual save function)
   const performSaveChoices = async () => {
     setSaving(true);
     
@@ -527,7 +909,9 @@ export default function ProgrammesPage() {
         programme_name: choice.programme?.name || "",
         department: choice.programme?.department || "",
         duration: choice.programme?.duration || "",
-        category: choice.programme?.category || ""
+        category: choice.programme?.category || "",
+        eligibility_status: choice.eligibility_status?.status || 'PENDING_REVIEW',
+        override_reason: choice.eligibility_status?.override?.reason
       }));
 
       const endpoint = `${API_BASE_URL}/applicants/programme-choices`;
@@ -590,7 +974,6 @@ export default function ProgrammesPage() {
     }
   };
 
-  // Show confirmation modal before saving
   const handleSaveChoices = () => {
     if (!canProceed) {
       setNotification("Please select all 6 programmes before saving.");
@@ -622,6 +1005,7 @@ export default function ProgrammesPage() {
     
     fetchProgrammes();
     fetchSavedChoices();
+    fetchMSCEResults();
   }, []);
 
   useEffect(() => {
@@ -630,7 +1014,7 @@ export default function ProgrammesPage() {
     }
   }, [programmes, applicationType]);
 
-  const updateChoice = (choiceId: number, programmeId: number) => {
+  const updateChoice = async (choiceId: number, programmeId: number) => {
     const selectedProgramme = filteredProgrammes.find(p => p.id === programmeId);
     
     const isAlreadySelected = choices.some(choice => 
@@ -644,17 +1028,29 @@ export default function ProgrammesPage() {
       return;
     }
     
+    // Update the choice
     setChoices(prev => prev.map(choice =>
       choice.id === choiceId
-        ? { ...choice, programme: selectedProgramme || null }
+        ? { ...choice, programme: selectedProgramme || null, eligibility_status: undefined }
         : choice
     ));
+    
+    // Check eligibility for the new selection
+    if (selectedProgramme) {
+      const msceSubjects = await fetchMSCEResults();
+      const eligibility = await checkEligibility(selectedProgramme, msceSubjects);
+      setChoices(prev => prev.map(choice =>
+        choice.id === choiceId
+          ? { ...choice, eligibility_status: eligibility }
+          : choice
+      ));
+    }
   };
 
   const removeChoice = (choiceId: number) => {
     setChoices(prev => prev.map(choice =>
       choice.id === choiceId
-        ? { ...choice, programme: null }
+        ? { ...choice, programme: null, eligibility_status: undefined }
         : choice
     ));
   };
@@ -686,7 +1082,9 @@ export default function ProgrammesPage() {
     const selected = choices.filter(c => c.programme);
     return selected.map((c, idx) => ({
       rank: idx + 1,
-      name: c.programme?.name || ''
+      name: c.programme?.name || '',
+      eligible: c.eligibility_status?.is_eligible || false,
+      status: c.eligibility_status?.status || 'PENDING_REVIEW'
     }));
   };
 
@@ -704,7 +1102,6 @@ export default function ProgrammesPage() {
       <div className="max-w-4xl mx-auto px-4">
         {/* Main Card */}
         <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
-          {/* Header */}
           <div className="border-b border-gray-200 p-6">
             <div className="flex items-center justify-between flex-wrap gap-3 mb-2">
               <div className="flex items-center gap-3">
@@ -712,7 +1109,6 @@ export default function ProgrammesPage() {
                 <h2 className="text-xl font-semibold text-gray-800">PROGRAMME SELECTION</h2>
               </div>
               
-              {/* AI Recommendations Button */}
               <button
                 onClick={openAIModal}
                 className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all shadow-md"
@@ -734,7 +1130,6 @@ export default function ProgrammesPage() {
           </div>
 
           <div className="p-6">
-            {/* Notification */}
             {notification && (
               <div className={`mb-6 p-4 rounded-lg flex items-center gap-3 ${
                 notificationType === "success" 
@@ -754,7 +1149,6 @@ export default function ProgrammesPage() {
               </div>
             )}
 
-            {/* Loading State */}
             {loading ? (
               <div className="text-center py-12">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto mb-4"></div>
@@ -762,7 +1156,6 @@ export default function ProgrammesPage() {
               </div>
             ) : (
               <>
-                {/* Show application type info and available programmes count */}
                 <div className="mb-4 flex justify-between items-center">
                   <p className="text-sm text-gray-600">
                     Showing <span className="font-semibold text-green-600">{filteredProgrammes.length}</span> programmes for{" "}
@@ -770,7 +1163,6 @@ export default function ProgrammesPage() {
                   </p>
                 </div>
 
-                {/* Choices Grid */}
                 <div className="space-y-4 mb-8">
                   {choices.map((choice, index) => {
                     const { label, icon: Icon, color, bg } = getRankLabel(index);
@@ -782,13 +1174,11 @@ export default function ProgrammesPage() {
                         className="border border-gray-200 rounded-lg p-4 hover:border-green-300 transition-all duration-200"
                       >
                         <div className="flex flex-col md:flex-row md:items-start gap-4">
-                          {/* Rank Badge */}
                           <div className={`flex items-center gap-2 ${bg} rounded-lg px-3 py-1.5 min-w-[110px]`}>
                             <Icon className={`w-4 h-4 ${color}`} />
                             <span className={`font-semibold text-sm ${color}`}>{label}</span>
                           </div>
 
-                          {/* Styled Programme Select Dropdown */}
                           <div className="flex-1">
                             <StyledSelect
                               value={choice.programme?.id || ""}
@@ -797,28 +1187,38 @@ export default function ProgrammesPage() {
                               placeholder="-- Select a programme --"
                             />
                             
-                            {/* Selected Programme Details */}
                             {choice.programme && (
-                              <div className="mt-3 p-3 bg-gray-50 rounded-lg">
-                                <div className="flex flex-wrap gap-3 text-sm">
-                                  <div className="flex items-center gap-1 text-gray-600">
-                                    <Building2 className="w-4 h-4 text-green-600" />
-                                    <span>{choice.programme.department || "Not specified"}</span>
-                                  </div>
-                                  <div className="flex items-center gap-1 text-gray-600">
-                                    <Clock className="w-4 h-4 text-green-600" />
-                                    <span>{choice.programme.duration || "Not specified"}</span>
-                                  </div>
-                                  <div className="flex items-center gap-1 text-gray-600">
-                                    <BookOpen className="w-4 h-4 text-green-600" />
-                                    <span>{choice.programme.category || "Not specified"}</span>
+                              <>
+                                <div className="mt-3 p-3 bg-gray-50 rounded-lg">
+                                  <div className="flex flex-wrap gap-3 text-sm">
+                                    <div className="flex items-center gap-1 text-gray-600">
+                                      <Building2 className="w-4 h-4 text-green-600" />
+                                      <span>{choice.programme.department || "Not specified"}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1 text-gray-600">
+                                      <Clock className="w-4 h-4 text-green-600" />
+                                      <span>{choice.programme.duration || "Not specified"}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1 text-gray-600">
+                                      <BookOpen className="w-4 h-4 text-green-600" />
+                                      <span>{choice.programme.category || "Not specified"}</span>
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
+                                
+                                {/* Eligibility Details */}
+                                {choice.eligibility_status && (
+                                  <EligibilityDetails
+                                    eligibility={choice.eligibility_status}
+                                    choiceId={choice.id}
+                                    programmeName={choice.programme.name}
+                                    onOverride={handleOverride}
+                                  />
+                                )}
+                              </>
                             )}
                           </div>
 
-                          {/* Remove Button */}
                           {choice.programme && (
                             <button
                               onClick={() => removeChoice(choice.id)}
@@ -834,7 +1234,6 @@ export default function ProgrammesPage() {
                   })}
                 </div>
 
-                {/* Progress Indicator */}
                 <div className="mb-8 bg-gray-50 rounded-lg p-4 border border-gray-200">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm font-medium text-gray-700">Selection Progress</span>
@@ -855,7 +1254,6 @@ export default function ProgrammesPage() {
                   )}
                 </div>
 
-                {/* Action Section */}
                 {savedChoices.length === 0 ? (
                   <div className="pt-4 border-t border-gray-200">
                     <div className="flex justify-end">
@@ -903,7 +1301,7 @@ export default function ProgrammesPage() {
         </div>
       </div>
 
-      {/* AI Recommendations Modal - Simple Header like PROGRAMME SELECTION */}
+      {/* AI Recommendations Modal */}
       <AnimatePresence>
         {showAIModal && (
           <motion.div
@@ -921,7 +1319,6 @@ export default function ProgrammesPage() {
               className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden"
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Modal Header - Simple border bottom like PROGRAMME SELECTION */}
               <div className="border-b border-gray-200 px-6 py-4 flex items-center justify-between sticky top-0 z-10 bg-white">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
@@ -944,7 +1341,6 @@ export default function ProgrammesPage() {
                 </button>
               </div>
 
-              {/* Modal Body - Scrollable */}
               <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
                 {isLoadingRecommendations ? (
                   <div className="text-center py-12">
@@ -966,7 +1362,6 @@ export default function ProgrammesPage() {
                   </div>
                 ) : (
                   <>
-                    {/* Student Stats Summary */}
                     {mlStudentStats && (
                       <div className="mb-6 bg-green-50 rounded-xl p-4 border border-green-200">
                         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -995,7 +1390,6 @@ export default function ProgrammesPage() {
                       </div>
                     )}
 
-                    {/* Recommendations List - ALL recommendations */}
                     <div className="space-y-4">
                       <div className="flex items-center justify-between mb-2">
                         <p className="text-sm font-medium text-gray-700 flex items-center gap-2">
@@ -1005,8 +1399,7 @@ export default function ProgrammesPage() {
                         <p className="text-xs text-gray-400">Sorted by fit score</p>
                       </div>
                       
-                      {/* Show ALL recommendations - no slice */}
-                      {mlRecommendations.map((rec, idx) => (
+                      {mlRecommendations.map((rec) => (
                         <div
                           key={rec.id}
                           className="border border-green-100 rounded-xl p-4 hover:border-green-300 hover:shadow-md transition-all"
@@ -1046,7 +1439,6 @@ export default function ProgrammesPage() {
                                 </span>
                               </div>
 
-                              {/* Required Subjects */}
                               {rec.required_subjects.length > 0 && (
                                 <div className="mb-2">
                                   <p className="text-xs font-medium text-gray-600 mb-1">Required Subjects:</p>
@@ -1067,7 +1459,6 @@ export default function ProgrammesPage() {
                                 </div>
                               )}
 
-                              {/* Missing Subjects Warning */}
                               {rec.missing_subjects.length > 0 && (
                                 <div className="bg-orange-50 border-l-4 border-orange-500 p-2 rounded-r-lg mt-2">
                                   <p className="text-xs text-orange-700">
@@ -1077,7 +1468,6 @@ export default function ProgrammesPage() {
                               )}
                             </div>
 
-                            {/* Fit Score and Add Button */}
                             <div className="text-center min-w-[100px]">
                               <div className="relative w-20 h-20 mx-auto">
                                 <svg className="w-20 h-20 transform -rotate-90">
@@ -1124,7 +1514,6 @@ export default function ProgrammesPage() {
                 )}
               </div>
 
-              {/* Modal Footer */}
               {!isLoadingRecommendations && mlRecommendations.length > 0 && (
                 <div className="border-t border-gray-200 px-6 py-3 bg-gray-50 sticky bottom-0">
                   <p className="text-xs text-gray-500 text-center flex items-center justify-center gap-2">
@@ -1158,9 +1547,20 @@ export default function ProgrammesPage() {
                 <h4 className="font-semibold text-gray-700 mb-3 text-sm">Your Selected Programmes:</h4>
                 <div className="space-y-2">
                   {getSelectedProgrammesSummary().map((item) => (
-                    <div key={item.rank} className="flex items-start gap-2 text-sm">
-                      <span className="font-bold text-green-600 min-w-[70px]">{item.rank}{getRankSuffix(item.rank)} Choice:</span>
-                      <span className="text-gray-700">{item.name}</span>
+                    <div key={item.rank} className="flex items-start justify-between gap-2 text-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-green-600 min-w-[70px]">{item.rank}{getRankSuffix(item.rank)} Choice:</span>
+                        <span className="text-gray-700">{item.name}</span>
+                      </div>
+                      {item.status === 'ELIGIBLE' && (
+                        <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Eligible</span>
+                      )}
+                      {item.status === 'OVERRIDDEN' && (
+                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Overridden</span>
+                      )}
+                      {item.status === 'INELIGIBLE' && (
+                        <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">Not Eligible</span>
+                      )}
                     </div>
                   ))}
                 </div>

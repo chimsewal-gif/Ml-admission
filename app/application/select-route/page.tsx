@@ -73,6 +73,7 @@ export default function SelectStudyRoute() {
   const [selectedRoute, setSelectedRoute] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string>('');
+  const [success, setSuccess] = useState<string>(''); // ADDED: missing success state
   const [user, setUser] = useState<any>(null);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [applicationType, setApplicationType] = useState<string>('');
@@ -115,6 +116,7 @@ export default function SelectStudyRoute() {
   const handleSelection = (routeId: string) => {
     setSelectedRoute(routeId);
     setError('');
+    setSuccess(''); // Clear success when new selection is made
   };
 
   const handleContinue = async () => {
@@ -125,6 +127,7 @@ export default function SelectStudyRoute() {
 
     setIsLoading(true);
     setError('');
+    setSuccess(''); // Clear previous success
 
     try {
       // Store the selected study route
@@ -141,10 +144,10 @@ export default function SelectStudyRoute() {
       
       setSuccess(`${selectedRouteData?.name} selected successfully! Redirecting...`);
       
-      // Redirect to programme selection based on study route and application type
+      // Redirect to high school records page
       setTimeout(() => {
         router.push('/application/High-school-records');
-      }, 1000);
+      }, 1500);
       
     } catch (error: any) {
       setError(error.message || 'An unexpected error occurred. Please try again.');
@@ -241,6 +244,7 @@ export default function SelectStudyRoute() {
               </div>
             )}
 
+            {/* Success Alert */}
             {success && (
               <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-3">
                 <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0" />
@@ -347,8 +351,6 @@ export default function SelectStudyRoute() {
             </div>
           </div>
         </div>
-
-        
       </div>
     </div>
   );
