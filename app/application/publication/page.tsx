@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { 
   FileText, Plus, Trash2, Edit3, Save, ArrowRight, AlertCircle, 
   CheckCircle, X, Calendar, Building, Upload, Download, XCircle, 
-  ChevronLeft, BookOpen, Link as LinkIcon, Users
+  ChevronLeft, BookOpen, Link as LinkIcon, Users, Home, ChevronRight,
+  Heart
 } from 'lucide-react';
 
 const API_BASE_URL = 'http://127.0.0.1:8000/api';
@@ -18,6 +19,12 @@ interface PublicationRecord {
   link: string;
   authors?: string;
   doi?: string;
+}
+
+interface Toast {
+  id: number;
+  message: string;
+  type: 'success' | 'error';
 }
 
 export default function PublicationsPage() {
@@ -33,7 +40,8 @@ export default function PublicationsPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteId, setDeleteId] = useState<number | null>(null);
-  const [toasts, setToasts] = useState<{ id: number; message: string; type: 'success' | 'error' }[]>([]);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [applicationTypeName, setApplicationTypeName] = useState<string>('');
   
   // Form state
   const [formData, setFormData] = useState<PublicationRecord>({
@@ -63,6 +71,9 @@ export default function PublicationsPage() {
       return;
     }
     setToken(storedToken);
+    
+    const savedAppTypeName = localStorage.getItem('userApplicationTypeName');
+    setApplicationTypeName(savedAppTypeName || '');
   }, [router]);
 
   const authFetch = async (url: string, options: RequestInit = {}) => {
@@ -323,7 +334,7 @@ export default function PublicationsPage() {
   };
 
   const handleBack = () => {
-    router.back();
+    router.push('/application/referees');
   };
 
   const handleSave = async () => {
@@ -335,7 +346,7 @@ export default function PublicationsPage() {
       addToast('Please add at least one publication before continuing', 'error');
       return;
     }
-    router.push('/application/teacher-subjects');
+    router.push('/application/submit');
   };
 
   if (loading) {
@@ -352,8 +363,9 @@ export default function PublicationsPage() {
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-5xl mx-auto px-4">
+        
         {/* Toast Notifications */}
-        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 flex flex-col items-center space-y-2 pointer-events-none">
+        <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 flex flex-col items-center space-y-2 pointer-events-none">
           {toasts.map((toast) => (
             <div
               key={toast.id}
@@ -379,9 +391,46 @@ export default function PublicationsPage() {
           ))}
         </div>
 
+        {/* Breadcrumb Navigation */}
+        <div className="mb-6">
+          <nav className="flex items-center gap-2 text-sm">
+            <button
+              onClick={() => router.push('/')}
+              className="flex items-center gap-1 text-gray-600 hover:text-green-600 transition-colors"
+            >
+              <Home className="w-4 h-4" />
+              <span>Home</span>
+            </button>
+            <ChevronRight className="w-4 h-4 text-gray-400" />
+            <button
+              onClick={() => router.push('/application/select-type')}
+              className="text-gray-600 hover:text-green-600 transition-colors"
+            >
+              Application Type
+            </button>
+            <ChevronRight className="w-4 h-4 text-gray-400" />
+            <span className="text-gray-900 font-medium">Publications</span>
+          </nav>
+        </div>
+
+        {/* Selected Application Type Badge */}
+        {applicationTypeName && (
+          <div className="mb-6 flex justify-center">
+            <div className="inline-flex items-center gap-2 bg-green-100 text-green-700 px-4 py-2 rounded-full">
+              <span className="text-sm">Applying for:</span>
+              <span className="font-semibold">{applicationTypeName}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Header */}
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">Publications</h1>
+          <p className="text-gray-600 mt-2">List your academic and professional publications</p>
+        </div>
+
         {/* Main Card */}
         <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
-          {/* Publications Header */}
           <div className="border-b border-gray-200 p-6">
             <div className="flex items-center gap-3 mb-2">
               <BookOpen className="w-6 h-6 text-gray-700" />
@@ -389,7 +438,7 @@ export default function PublicationsPage() {
             </div>
             <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-lg mt-3">
               <p className="text-sm text-gray-700">
-                Provide details of any academic or professional publications you have contributed to, including journal articles, conference papers, or other scholarly work. Leave blank if not applicable.
+                Provide details of any academic or professional publications you have contributed to, including journal articles, conference papers, or other scholarly work.
               </p>
             </div>
           </div>
@@ -471,7 +520,7 @@ export default function PublicationsPage() {
               )}
             </div>
 
-            {/* Action Buttons - Back, Save, Next */}
+            {/* Action Buttons */}
             <div className="mt-8 pt-6 border-t border-gray-200 flex justify-between items-center">
               <button
                 onClick={handleBack}
@@ -492,7 +541,7 @@ export default function PublicationsPage() {
                 
                 <button
                   onClick={handleNext}
-                  className="px-6 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium flex items-center gap-2"
+                  className="px-6 py-2.5 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:from-green-700 hover:to-emerald-700 transition-colors font-medium flex items-center gap-2 shadow-md"
                 >
                   Next
                   <ArrowRight className="w-4 h-4" />
@@ -502,93 +551,116 @@ export default function PublicationsPage() {
           </div>
         </div>
 
-        {/* Help Text */}
         <div className="text-center mt-6">
           <p className="text-gray-500 text-sm">
-            Add your academic publications. Include journal articles, conference papers, or other scholarly work.
+            Add your publications. This section is optional but recommended for postgraduate applications.
           </p>
         </div>
       </div>
 
-      {/* Add/Edit Modal - Styled like the uploaded picture */}
+      {/* Add/Edit Modal - Transparent Background, Medium Size */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full my-8">
-            <div className="p-6">
-              <h3 className="text-xl font-bold text-gray-800 mb-2">Add Publications</h3>
-              
-              <div className="space-y-5 mt-6">
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full my-8">
+            <div className="flex items-center justify-between p-5 border-b border-gray-200">
+              <div className="flex items-center gap-2">
+                <BookOpen className="w-5 h-5 text-green-600" />
+                <h3 className="text-lg font-semibold text-gray-800">
+                  {editingId ? 'Edit Publication' : 'Add Publication'}
+                </h3>
+              </div>
+              <button
+                onClick={() => {
+                  setShowAddModal(false);
+                  resetForm();
+                }}
+                className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            
+            <div className="p-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Publication Title */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Publication Title</label>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Publication Title <span className="text-red-500">*</span>
+                  </label>
                   <input
                     type="text"
                     name="title"
                     value={formData.title}
                     onChange={handleInputChange}
                     placeholder="Enter publication title..."
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
                   />
                 </div>
 
                 {/* Journal / Publisher */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Journal / Publisher</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Journal / Publisher <span className="text-red-500">*</span>
+                  </label>
                   <input
                     type="text"
                     name="journal"
                     value={formData.journal}
                     onChange={handleInputChange}
-                    placeholder="Enter journal / publisher..."
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                    placeholder="Enter journal or publisher name..."
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
                   />
                 </div>
 
                 {/* Year of Publication */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Year of Publication</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Year of Publication <span className="text-red-500">*</span>
+                  </label>
                   <input
                     type="number"
                     name="year"
                     value={formData.year}
                     onChange={handleInputChange}
-                    placeholder="Enter year of publication..."
+                    placeholder="YYYY"
                     min="1900"
                     max={new Date().getFullYear() + 5}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
                   />
                 </div>
 
                 {/* Link (URL) */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Link (URL)</label>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Link (URL)
+                  </label>
                   <input
                     type="url"
                     name="link"
                     value={formData.link}
                     onChange={handleInputChange}
-                    placeholder="https://..."
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                    placeholder="https://doi.org/... or https://..."
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
                   />
+                  <p className="text-xs text-gray-500 mt-1">Optional - DOI link or URL to publication</p>
                 </div>
               </div>
             </div>
             
-            {/* Modal Buttons */}
-            <div className="flex gap-3 p-6 pt-0">
+            <div className="flex gap-3 p-5 pt-0 border-t border-gray-200 mt-2">
               <button
                 onClick={() => {
                   setShowAddModal(false);
                   resetForm();
                 }}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium text-sm"
               >
                 Cancel
               </button>
               <button
                 onClick={editingId ? handleUpdateRecord : handleAddRecord}
                 disabled={saving}
-                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 font-medium text-sm"
               >
                 {saving ? (
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
@@ -604,11 +676,11 @@ export default function PublicationsPage() {
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete Confirmation Modal - Transparent Background */}
       {showDeleteModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
-            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+            <div className="flex items-center justify-between p-5 border-b border-gray-200">
               <h3 className="text-lg font-semibold text-gray-800">Confirm Delete</h3>
               <button
                 onClick={() => {
@@ -621,34 +693,34 @@ export default function PublicationsPage() {
               </button>
             </div>
             
-            <div className="p-6">
-              <div className="flex items-center justify-center mb-4">
-                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center">
-                  <Trash2 className="w-8 h-8 text-red-600" />
+            <div className="p-5">
+              <div className="flex items-center justify-center mb-3">
+                <div className="w-14 h-14 bg-red-100 rounded-full flex items-center justify-center">
+                  <Trash2 className="w-7 h-7 text-red-600" />
                 </div>
               </div>
-              <p className="text-center text-gray-700 mb-2">
+              <p className="text-center text-gray-700 mb-1">
                 Are you sure you want to delete this publication?
               </p>
-              <p className="text-center text-gray-500 text-sm">
+              <p className="text-center text-gray-500 text-xs">
                 This action cannot be undone.
               </p>
             </div>
             
-            <div className="flex gap-3 p-6 pt-0">
+            <div className="flex gap-3 p-5 pt-0">
               <button
                 onClick={() => {
                   setShowDeleteModal(false);
                   setDeleteId(null);
                 }}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium text-sm"
               >
                 Cancel
               </button>
               <button
                 onClick={confirmDelete}
                 disabled={saving}
-                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 font-medium text-sm"
               >
                 {saving ? (
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>

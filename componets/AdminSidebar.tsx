@@ -25,6 +25,7 @@ const adminNavItems = [
   { label: 'Applications', href: '/appadmin/applications', icon: FileText },
   { label: 'Departments', href: '/appadmin/departments', icon: GraduationCap },
   { label: 'Fees', href: '/appadmin/fees', icon: Banknote },
+  { label: 'Open/close', href: '/appadmin/open', icon: Clock },
   { label: 'Programmes', href: '/appadmin/programmes', icon: GraduationCap },
 ];
 

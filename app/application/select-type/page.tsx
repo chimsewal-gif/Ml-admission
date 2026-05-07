@@ -152,14 +152,20 @@ export default function SelectApplicationType() {
       localStorage.setItem('userApplicationType', selectedType);
       localStorage.setItem('userApplicationTypeName', selectedTypeData?.name || '');
       
+      // IMPORTANT: Store completion flag for sidebar
+      localStorage.setItem('applicationTypeCompleted', 'true');
+      
+      // Also store in session for backup
+      sessionStorage.setItem('applicationTypeCompleted', 'true');
+      
       setSuccess(`${selectedTypeData?.name} selected successfully! Redirecting...`);
       
       setTimeout(() => {
-        router.push('/application/program-selection');
+        router.push('/application/select-route');
       }, 1500);
       
     } catch (error: any) {
-      if (error.message.includes('Failed to fetch')) {
+      if (error.message && error.message.includes('Failed to fetch')) {
         setError('Cannot connect to server. Please ensure the Django backend is running.');
       } else {
         setError(error.message || 'An unexpected error occurred. Please try again.');
@@ -272,7 +278,7 @@ export default function SelectApplicationType() {
               </p>
             </div>
 
-            {/* Selected Type Details Card */}
+            {/* Selected Type Details Card - Fixed syntax */}
             {selectedDetails && (
               <div className="mb-8 border-2 border-dashed border-green-500 rounded-lg overflow-hidden">
                 <div className={`${selectedDetails.bgColor} p-4 border-b border-dashed border-green-200`}>

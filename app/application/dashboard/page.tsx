@@ -534,7 +534,7 @@ export default function DashboardPage() {
               {/* Email removed as requested */}
             </div>
             <button
-              onClick={() => router.push('/application/select-type')}
+              onClick={() => router.push('/application/profile')}
               className="flex items-center gap-2 px-5 py-2.5 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors shadow-sm"
             >
               <PlusCircle className="w-5 h-5" />

@@ -1,10 +1,11 @@
-// Updated Header2.tsx with notification support and dark mode
+// Updated Header2.tsx with notification support and full theme switching (Light/Dark/High Contrast)
 
 'use client';
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
+import { useTheme } from 'next-themes';
 import {
   Bell,
   Moon,
@@ -15,6 +16,8 @@ import {
   Check,
   CheckCheck,
   X,
+  Monitor,
+  Eye,
 } from 'lucide-react';
 import Button from '@/componets/Button';
 
@@ -42,7 +45,7 @@ const Header2 = () => {
   } | null>(null);
   const [showMenu, setShowMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [darkMode, setDarkMode] = useState(false);
+  const [showThemeMenu, setShowThemeMenu] = useState(false);
   const [greeting, setGreeting] = useState('');
   const [currentTime, setCurrentTime] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -52,18 +55,7 @@ const Header2 = () => {
   
   const router = useRouter();
   const pathname = usePathname();
-
-  // Load dark mode preference from localStorage
-  useEffect(() => {
-    const savedDarkMode = localStorage.getItem('darkMode');
-    const isDark = savedDarkMode === 'true';
-    setDarkMode(isDark);
-    if (isDark) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }, []);
+  const { theme, setTheme } = useTheme();
 
   // Helper to get token from localStorage
   const getToken = () => {
@@ -334,16 +326,24 @@ const Header2 = () => {
     }
   };
 
-  // Toggle dark mode
-  const toggleDarkMode = () => {
-    const newDarkMode = !darkMode;
-    setDarkMode(newDarkMode);
-    localStorage.setItem('darkMode', String(newDarkMode));
-    if (newDarkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
+  // Get current theme icon and name
+  const getThemeInfo = () => {
+    switch (theme) {
+      case 'dark':
+        return { icon: <Moon className="w-4 h-4" />, name: 'Dark' };
+      case 'high-contrast':
+        return { icon: <Eye className="w-4 h-4" />, name: 'High Contrast' };
+      default:
+        return { icon: <Sun className="w-4 h-4" />, name: 'Light' };
     }
+  };
+
+  const currentThemeInfo = getThemeInfo();
+
+  // Handle theme change
+  const changeTheme = (newTheme: string) => {
+    setTheme(newTheme);
+    setShowThemeMenu(false);
   };
 
   useEffect(() => {
@@ -473,6 +473,7 @@ const Header2 = () => {
                   onClick={() => {
                     setShowNotifications(!showNotifications);
                     if (showMenu) setShowMenu(false);
+                    if (showThemeMenu) setShowThemeMenu(false);
                   }}
                   className="relative p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                 >
@@ -579,6 +580,65 @@ const Header2 = () => {
               </div>
             )}
 
+            {/* Theme Dropdown (replaces old Moon/Sun button) */}
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setShowThemeMenu(!showThemeMenu);
+                  if (showMenu) setShowMenu(false);
+                  if (showNotifications) setShowNotifications(false);
+                }}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                aria-label="Change theme"
+              >
+                {currentThemeInfo.icon}
+                <span className="hidden sm:inline text-sm text-gray-700 dark:text-gray-300">
+                  {currentThemeInfo.name}
+                </span>
+              </button>
+
+              {showThemeMenu && (
+                <div className="absolute right-0 mt-2 w-44 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-2">
+                  <button
+                    onClick={() => changeTheme('light')}
+                    className={`flex items-center gap-3 w-full px-4 py-2 text-left text-sm transition-colors ${
+                      theme === 'light'
+                        ? 'bg-gray-100 dark:bg-gray-700 text-green-600 dark:text-green-400'
+                        : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                    }`}
+                  >
+                    <Sun className="w-4 h-4" />
+                    <span>Light</span>
+                    {theme === 'light' && <Check className="w-4 h-4 ml-auto" />}
+                  </button>
+                  <button
+                    onClick={() => changeTheme('dark')}
+                    className={`flex items-center gap-3 w-full px-4 py-2 text-left text-sm transition-colors ${
+                      theme === 'dark'
+                        ? 'bg-gray-100 dark:bg-gray-700 text-green-600 dark:text-green-400'
+                        : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                    }`}
+                  >
+                    <Moon className="w-4 h-4" />
+                    <span>Dark</span>
+                    {theme === 'dark' && <Check className="w-4 h-4 ml-auto" />}
+                  </button>
+                  <button
+                    onClick={() => changeTheme('high-contrast')}
+                    className={`flex items-center gap-3 w-full px-4 py-2 text-left text-sm transition-colors ${
+                      theme === 'high-contrast'
+                        ? 'bg-gray-100 dark:bg-gray-700 text-green-600 dark:text-green-400'
+                        : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                    }`}
+                  >
+                    <Eye className="w-4 h-4" />
+                    <span>High Contrast</span>
+                    {theme === 'high-contrast' && <Check className="w-4 h-4 ml-auto" />}
+                  </button>
+                </div>
+              )}
+            </div>
+
             {/* User Menu */}
             {user ? (
               <div className="relative">
@@ -586,6 +646,7 @@ const Header2 = () => {
                   onClick={() => {
                     setShowMenu(!showMenu);
                     if (showNotifications) setShowNotifications(false);
+                    if (showThemeMenu) setShowThemeMenu(false);
                   }}
                   className="flex items-center space-x-2 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                 >
@@ -631,26 +692,6 @@ const Header2 = () => {
                       <SettingsIcon className="w-4 h-4" />
                       <span>Settings</span>
                     </Link>
-
-                    <button
-                      onClick={() => {
-                        toggleDarkMode();
-                        setShowMenu(false);
-                      }}
-                      className="flex items-center gap-3 px-4 py-2 w-full text-left text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                    >
-                      {darkMode ? (
-                        <>
-                          <Sun className="w-4 h-4" />
-                          <span>Light Mode</span>
-                        </>
-                      ) : (
-                        <>
-                          <Moon className="w-4 h-4" />
-                          <span>Dark Mode</span>
-                        </>
-                      )}
-                    </button>
 
                     <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
 

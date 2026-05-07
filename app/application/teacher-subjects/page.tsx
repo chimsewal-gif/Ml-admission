@@ -24,7 +24,6 @@ interface Toast {
   type: 'success' | 'error' | 'info' | 'warning';
 }
 
-// Available teaching subjects
 const AVAILABLE_SUBJECTS = [
   'English', 'Chichewa', 'Mathematics', 'Physical Science', 
   'Biology', 'Chemistry', 'Physics', 'Geography', 'History',
@@ -48,14 +47,12 @@ export default function TeacherSubjectsPage() {
   const [subjects, setSubjects] = useState<TeachingSubject[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
   
-  // Modal states
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteIndex, setDeleteIndex] = useState<number | null>(null);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   
-  // Form state
   const [addForm, setAddForm] = useState({
     subject_name: '',
     teaching_level: 'both' as 'junior' | 'senior' | 'both',
@@ -69,7 +66,6 @@ export default function TeacherSubjectsPage() {
     is_major: false
   });
 
-  // Add toast notification
   const addToast = (message: string, type: 'success' | 'error' | 'info' | 'warning') => {
     const id = Date.now();
     setToasts(prev => [...prev, { id, message, type }]);
@@ -78,12 +74,10 @@ export default function TeacherSubjectsPage() {
     }, 4000);
   };
 
-  // Remove toast
   const removeToast = (id: number) => {
     setToasts(prev => prev.filter(toast => toast.id !== id));
   };
 
-  // Auth fetch helper
   const authFetch = async (url: string, options: RequestInit = {}) => {
     const currentToken = localStorage.getItem('token');
     if (!currentToken) {
@@ -105,6 +99,23 @@ export default function TeacherSubjectsPage() {
     return data;
   };
 
+  // Helper to update localStorage completion flag
+  const updateCompletionFlag = (hasSubjects: boolean) => {
+    if (typeof window !== 'undefined') {
+      if (hasSubjects) {
+        localStorage.setItem('teachingSubjectsCompleted', 'true');
+        localStorage.setItem('teachingSubjectsSaved', 'true');
+        sessionStorage.setItem('teachingSubjectsCompleted', 'true');
+        console.log('✅ teachingSubjectsCompleted set to TRUE');
+      } else {
+        localStorage.removeItem('teachingSubjectsCompleted');
+        localStorage.removeItem('teachingSubjectsSaved');
+        sessionStorage.removeItem('teachingSubjectsCompleted');
+        console.log('❌ teachingSubjectsCompleted REMOVED');
+      }
+    }
+  };
+
   useEffect(() => {
     const storedToken = localStorage.getItem('token');
     if (!storedToken) {
@@ -115,38 +126,54 @@ export default function TeacherSubjectsPage() {
     loadTeachingSubjects(storedToken);
   }, [router]);
 
-  // Load teaching subjects from backend API
   const loadTeachingSubjects = async (authToken: string) => {
     try {
       setLoading(true);
-      
       const response = await authFetch('/teaching-subjects/');
+      console.log('Teaching subjects API response:', response);
       
-      if (response.success && response.data) {
-        setSubjects(response.data);
+      // Check different response formats
+      let subjectsArray = [];
+      if (response.success && Array.isArray(response.data)) {
+        subjectsArray = response.data;
+      } else if (Array.isArray(response)) {
+        subjectsArray = response;
+      } else if (response.data && Array.isArray(response.data.data)) {
+        subjectsArray = response.data.data;
+      } else if (response.data && Array.isArray(response.data)) {
+        subjectsArray = response.data;
       } else {
-        setSubjects([]);
+        subjectsArray = [];
       }
+      
+      setSubjects(subjectsArray);
+      
+      // Set flag based on whether there are subjects
+      const hasSubjects = subjectsArray.length > 0;
+      updateCompletionFlag(hasSubjects);
+      console.log(`Loaded ${subjectsArray.length} subjects, hasSubjects: ${hasSubjects}`);
+      
     } catch (err: any) {
       console.error('Error loading teaching subjects:', err);
-      // If endpoint doesn't exist yet, initialize empty array
       setSubjects([]);
+      updateCompletionFlag(false);
     } finally {
       setLoading(false);
     }
   };
 
-  // Save teaching subjects to backend API
   const saveTeachingSubjects = async (updatedSubjects: TeachingSubject[]) => {
     try {
       setSaving(true);
-      
       const response = await authFetch('/teaching-subjects/', {
         method: 'POST',
         body: JSON.stringify({ subjects: updatedSubjects }),
       });
       
       if (response.success) {
+        const hasSubjects = updatedSubjects.length > 0;
+        updateCompletionFlag(hasSubjects);
+        console.log(`Saved ${updatedSubjects.length} subjects, hasSubjects: ${hasSubjects}`);
         return true;
       } else {
         throw new Error(response.message || 'Failed to save subjects');
@@ -160,13 +187,11 @@ export default function TeacherSubjectsPage() {
     }
   };
 
-  // Delete a specific teaching subject
   const deleteTeachingSubject = async (subjectId: number) => {
     try {
       const response = await authFetch(`/teaching-subjects/${subjectId}/`, {
         method: 'DELETE',
       });
-      
       return response.success;
     } catch (err: any) {
       console.error('Error deleting teaching subject:', err);
@@ -187,7 +212,7 @@ export default function TeacherSubjectsPage() {
     }
     
     const newSubject: TeachingSubject = {
-      id: Date.now(), // Temporary ID, will be replaced by backend
+      id: Date.now(),
       subject_name: addForm.subject_name,
       subject_code: addForm.subject_name.substring(0, 3).toUpperCase(),
       teaching_level: addForm.teaching_level,
@@ -195,13 +220,10 @@ export default function TeacherSubjectsPage() {
     };
     
     const updatedSubjects = [...subjects, newSubject];
-    
-    // Save to backend
     const success = await saveTeachingSubjects(updatedSubjects);
     
     if (success) {
-      // Reload from backend to get server-generated IDs
-      await loadTeachingSubjects(token!);
+      setSubjects(updatedSubjects);
       setAddForm({
         subject_name: '',
         teaching_level: 'both',
@@ -240,11 +262,10 @@ export default function TeacherSubjectsPage() {
       is_major: editForm.is_major
     };
     
-    // Save to backend
     const success = await saveTeachingSubjects(updatedSubjects);
     
     if (success) {
-      await loadTeachingSubjects(token!);
+      setSubjects(updatedSubjects);
       setShowEditModal(false);
       setEditingIndex(null);
       setEditForm({
@@ -267,19 +288,19 @@ export default function TeacherSubjectsPage() {
     
     const subjectToDelete = subjects[deleteIndex];
     
-    // If subject has an ID from backend, delete via API
     if (subjectToDelete.id) {
       const success = await deleteTeachingSubject(subjectToDelete.id);
       if (success) {
-        await loadTeachingSubjects(token!);
+        const updatedSubjects = subjects.filter((_, i) => i !== deleteIndex);
+        setSubjects(updatedSubjects);
+        updateCompletionFlag(updatedSubjects.length > 0);
         addToast('Teaching subject removed successfully!', 'success');
       }
     } else {
-      // Fallback to local removal if no ID
       const updatedSubjects = subjects.filter((_, i) => i !== deleteIndex);
       const success = await saveTeachingSubjects(updatedSubjects);
       if (success) {
-        await loadTeachingSubjects(token!);
+        setSubjects(updatedSubjects);
         addToast('Teaching subject removed successfully!', 'success');
       }
     }
@@ -294,15 +315,24 @@ export default function TeacherSubjectsPage() {
       return;
     }
     
-    // Save one more time to ensure data is synced
     await saveTeachingSubjects(subjects);
+    // Ensure flag is set
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('teachingSubjectsCompleted', 'true');
+      localStorage.setItem('teachingSubjectsSaved', 'true');
+      sessionStorage.setItem('teachingSubjectsCompleted', 'true');
+      console.log('✅ teachingSubjectsCompleted set on next');
+    }
     
-    // Navigate to next page
-    router.push('/application/next-of-kin');
+    addToast('Teaching subjects saved successfully!', 'success');
+    
+    setTimeout(() => {
+      router.push('/application/documents');
+    }, 500);
   };
 
   const handleBack = () => {
-    router.push('/application/msce-results');
+    router.push('/application/education');
   };
 
   const getTeachingLevelLabel = (level: string) => {
@@ -389,7 +419,6 @@ export default function TeacherSubjectsPage() {
           </div>
 
           <div className="p-6">
-            {/* Warning: No subjects */}
             {subjects.length === 0 && (
               <div className="mb-6 p-4 bg-yellow-50 border-l-4 border-yellow-500 rounded-r-lg">
                 <div className="flex items-start gap-3">
@@ -404,7 +433,6 @@ export default function TeacherSubjectsPage() {
               </div>
             )}
 
-            {/* Add Subject Button */}
             <div className="mb-6">
               <button
                 onClick={() => setShowAddModal(true)}
@@ -419,7 +447,6 @@ export default function TeacherSubjectsPage() {
               </p>
             </div>
 
-            {/* Subjects List */}
             <div>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-semibold text-gray-800">Your Teaching Subjects</h3>
@@ -490,7 +517,6 @@ export default function TeacherSubjectsPage() {
               )}
             </div>
 
-            {/* Navigation Buttons */}
             <div className="mt-8 pt-6 border-t border-gray-200 flex justify-between">
               <button
                 onClick={handleBack}
@@ -523,7 +549,6 @@ export default function TeacherSubjectsPage() {
               </button>
             </div>
             
-            {/* Help text if no subjects */}
             {subjects.length === 0 && (
               <p className="text-sm text-red-500 text-center mt-4">
                 Please add at least one teaching subject to continue
@@ -532,7 +557,6 @@ export default function TeacherSubjectsPage() {
           </div>
         </div>
 
-        {/* Help Text */}
         <div className="text-center mt-6">
           <p className="text-gray-500 text-sm">
             Teaching subjects are required for Bachelor of Education programmes.

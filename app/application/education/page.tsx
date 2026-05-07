@@ -379,7 +379,6 @@ export default function EducationPage() {
   };
 
   const handleSave = async () => {
-    // Save all records to server
     addToast('All records saved successfully!', 'success');
   };
 
@@ -388,7 +387,7 @@ export default function EducationPage() {
       addToast('Please add at least one education record before continuing', 'error');
       return;
     }
-    router.push('/application/msce-results');
+    router.push('/application/teacher-subjects');
   };
 
   const formatDate = (dateString: string) => {
@@ -591,13 +590,13 @@ export default function EducationPage() {
         </div>
       </div>
 
-      {/* Add/Edit Modal */}
+      {/* Add/Edit Modal - Landscape Orientation */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full my-8">
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full my-8">
             <div className="flex items-center justify-between p-6 border-b border-gray-200">
               <h3 className="text-lg font-semibold text-gray-800">
-                {editingId ? 'Edit Education' : 'Add Education'}
+                {editingId ? 'Edit Education Record' : 'Add Education Record'}
               </h3>
               <button
                 onClick={() => {
@@ -610,142 +609,204 @@ export default function EducationPage() {
               </button>
             </div>
             
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Qualification Type *
-                </label>
-                <select
-                  name="qualification_type"
-                  value={formData.qualification_type}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white"
-                >
-                  <option value="">Select Qualification</option>
-                  {QUALIFICATION_TYPES.map(type => (
-                    <option key={type} value={type}>{type}</option>
-                  ))}
-                </select>
-              </div>
+            <div className="p-6">
+              {/* Two-column layout for landscape mode */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Left Column */}
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Qualification Type *
+                    </label>
+                    <select
+                      name="qualification_type"
+                      value={formData.qualification_type}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white"
+                    >
+                      <option value="">Select Qualification</option>
+                      {QUALIFICATION_TYPES.map(type => (
+                        <option key={type} value={type}>{type}</option>
+                      ))}
+                    </select>
+                  </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Institution *
-                </label>
-                <input
-                  type="text"
-                  name="institution"
-                  value={formData.institution}
-                  onChange={handleInputChange}
-                  placeholder="Enter institution name"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                />
-              </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Institution *
+                    </label>
+                    <input
+                      type="text"
+                      name="institution"
+                      value={formData.institution}
+                      onChange={handleInputChange}
+                      placeholder="Enter institution name"
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                    />
+                  </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Grade
-                </label>
-                <select
-                  name="grade"
-                  value={formData.grade}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white"
-                >
-                  <option value="">Select Grade</option>
-                  {GRADE_OPTIONS.map(grade => (
-                    <option key={grade} value={grade}>{grade}</option>
-                  ))}
-                </select>
-              </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Grade
+                    </label>
+                    <select
+                      name="grade"
+                      value={formData.grade}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white"
+                    >
+                      <option value="">Select Grade</option>
+                      {GRADE_OPTIONS.map(grade => (
+                        <option key={grade} value={grade}>{grade}</option>
+                      ))}
+                    </select>
+                  </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Start Date *
-                  </label>
-                  <input
-                    type="date"
-                    name="start_date"
-                    value={formData.start_date}
-                    onChange={handleInputChange}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                  />
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Start Date *
+                      </label>
+                      <input
+                        type="date"
+                        name="start_date"
+                        value={formData.start_date}
+                        onChange={handleInputChange}
+                        className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        End Date
+                      </label>
+                      <input
+                        type="date"
+                        name="end_date"
+                        value={formData.end_date}
+                        onChange={handleInputChange}
+                        disabled={formData.currently_studying}
+                        className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 disabled:bg-gray-100"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      name="currently_studying"
+                      checked={formData.currently_studying}
+                      onChange={handleInputChange}
+                      className="w-4 h-4 text-green-600 focus:ring-green-500 border-gray-300 rounded"
+                    />
+                    <label className="text-sm text-gray-700">
+                      I am currently studying here
+                    </label>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    End Date
-                  </label>
-                  <input
-                    type="date"
-                    name="end_date"
-                    value={formData.end_date}
-                    onChange={handleInputChange}
-                    disabled={formData.currently_studying}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 disabled:bg-gray-100"
-                  />
+
+                {/* Right Column */}
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Upload Certificate
+                    </label>
+                    <div className="mt-1 flex items-center gap-3">
+                      <input
+                        type="file"
+                        accept=".pdf,.jpg,.jpeg,.png"
+                        onChange={(e) => handleFileUpload('certificate', e.target.files?.[0] || null)}
+                        className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 file:mr-4 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
+                      />
+                    </div>
+                    {formData.certificate_url && (
+                      <div className="mt-2 flex items-center gap-2 text-sm text-green-600">
+                        <CheckCircle className="w-4 h-4" />
+                        <span>Certificate uploaded successfully</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Upload Transcript
+                    </label>
+                    <div className="mt-1 flex items-center gap-3">
+                      <input
+                        type="file"
+                        accept=".pdf,.jpg,.jpeg,.png"
+                        onChange={(e) => handleFileUpload('transcript', e.target.files?.[0] || null)}
+                        className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 file:mr-4 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
+                      />
+                    </div>
+                    {formData.transcript_url && (
+                      <div className="mt-2 flex items-center gap-2 text-sm text-green-600">
+                        <CheckCircle className="w-4 h-4" />
+                        <span>Transcript uploaded successfully</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Preview Section */}
+                  {(formData.certificate_url || formData.transcript_url) && (
+                    <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                      <p className="text-sm font-medium text-gray-700 mb-2">Uploaded Files:</p>
+                      <div className="space-y-2">
+                        {formData.certificate_url && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-gray-600">Certificate:</span>
+                            <a 
+                              href={formData.certificate_url} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:text-blue-700 text-sm flex items-center gap-1"
+                            >
+                              <Download className="w-4 h-4" />
+                              View
+                            </a>
+                          </div>
+                        )}
+                        {formData.transcript_url && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-gray-600">Transcript:</span>
+                            <a 
+                              href={formData.transcript_url} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:text-blue-700 text-sm flex items-center gap-1"
+                            >
+                              <Download className="w-4 h-4" />
+                              View
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  name="currently_studying"
-                  checked={formData.currently_studying}
-                  onChange={handleInputChange}
-                  className="w-4 h-4 text-green-600 focus:ring-green-500 border-gray-300 rounded"
-                />
-                <label className="text-sm text-gray-700">
-                  I am currently studying here
-                </label>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Upload Certificate
-                </label>
-                <input
-                  type="file"
-                  accept=".pdf,.jpg,.jpeg,.png"
-                  onChange={(e) => handleFileUpload('certificate', e.target.files?.[0] || null)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 file:mr-4 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Upload Transcript
-                </label>
-                <input
-                  type="file"
-                  accept=".pdf,.jpg,.jpeg,.png"
-                  onChange={(e) => handleFileUpload('transcript', e.target.files?.[0] || null)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 file:mr-4 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
-                />
               </div>
             </div>
             
-            <div className="flex gap-3 p-6 pt-0">
+            <div className="flex gap-3 p-6 pt-0 border-t border-gray-200 mt-4">
               <button
                 onClick={() => {
                   setShowAddModal(false);
                   resetForm();
                 }}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
               >
                 Cancel
               </button>
               <button
                 onClick={editingId ? handleUpdateRecord : handleAddRecord}
                 disabled={saving}
-                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                className="flex-1 px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 font-medium"
               >
                 {saving ? (
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
                 ) : (
                   <>
                     {editingId ? <Save className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                    {editingId ? 'Update' : 'Add'}
+                    {editingId ? 'Update Record' : 'Add Record'}
                   </>
                 )}
               </button>
@@ -754,9 +815,9 @@ export default function EducationPage() {
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete Confirmation Modal - Transparent Background */}
       {showDeleteModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
             <div className="flex items-center justify-between p-6 border-b border-gray-200">
               <h3 className="text-lg font-semibold text-gray-800">Confirm Delete</h3>
@@ -791,21 +852,21 @@ export default function EducationPage() {
                   setShowDeleteModal(false);
                   setDeleteId(null);
                 }}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
               >
                 Cancel
               </button>
               <button
                 onClick={confirmDelete}
                 disabled={saving}
-                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 font-medium"
               >
                 {saving ? (
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
                 ) : (
                   <>
                     <Trash2 className="w-4 h-4" />
-                    Delete
+                    Delete Record
                   </>
                 )}
               </button>

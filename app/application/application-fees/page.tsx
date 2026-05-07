@@ -78,8 +78,8 @@ export default function ApplicationFeesPage() {
         setRedirectCountdown(prev => (prev !== null ? prev - 1 : null));
       }, 1000);
     } else if (redirectCountdown === 0) {
-      // Redirect to next page
-      router.push('/application/referees');
+      // Redirect to next page (referees)
+      router.push('/application/referee');
     }
     
     return () => {
@@ -92,7 +92,7 @@ export default function ApplicationFeesPage() {
     let pollInterval: NodeJS.Timeout;
     
     if (submissionStatus === 'pending' || submissionStatus === 'submitted') {
-      // Poll every 5 seconds to check if fee has been verified
+      // Poll every 3 seconds to check if fee has been verified
       pollInterval = setInterval(async () => {
         if (!token) return;
         
@@ -131,7 +131,7 @@ export default function ApplicationFeesPage() {
         } catch (err) {
           console.error('Error polling fee status:', err);
         }
-      }, 5000); // Poll every 5 seconds
+      }, 3000); // Poll every 3 seconds
     }
     
     return () => {
@@ -401,15 +401,6 @@ export default function ApplicationFeesPage() {
     router.push('/application/documents');
   };
 
-  // Handle continue (manual)
-  const handleContinue = () => {
-    if (submissionStatus === 'verified') {
-      router.push('/application/referees');
-    } else {
-      setError('Please wait for payment verification before continuing');
-    }
-  };
-
   // Warning Modal Component
   const WarningModal = () => {
     if (!showWarningModal) return null;
@@ -455,32 +446,40 @@ export default function ApplicationFeesPage() {
     );
   };
 
-  // Success Modal for Auto-redirect
-  const SuccessModal = () => {
+  // Auto-redirect Success Modal
+  const AutoRedirectModal = () => {
     if (!redirectCountdown) return null;
     
     return (
-      <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-xl max-w-md w-full shadow-xl text-center p-6">
-          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <CheckCircle className="w-8 h-8 text-green-600" />
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl text-center p-8 animate-in zoom-in-95 duration-300">
+          <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-5">
+            <svg className="w-10 h-10 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
           </div>
-          <h3 className="text-xl font-bold text-gray-800 mb-2">Payment Verified!</h3>
+          <h3 className="text-2xl font-bold text-gray-900 mb-2">Payment Verified!</h3>
           <p className="text-gray-600 mb-4">
             Your application fee has been successfully verified.
           </p>
-          <p className="text-sm text-gray-500 mb-4">
-            Redirecting to next step in <span className="font-bold text-green-600">{redirectCountdown}</span> seconds...
-          </p>
-          <div className="w-full bg-gray-200 rounded-full h-2 mb-4">
+          <div className="mb-4">
+            <p className="text-sm text-gray-500 mb-2">
+              Redirecting to next step in
+            </p>
+            <div className="text-4xl font-bold text-green-600 mb-2">
+              {redirectCountdown}
+            </div>
+            <p className="text-xs text-gray-400">seconds</p>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-2 mb-6 overflow-hidden">
             <div 
               className="bg-green-600 rounded-full h-2 transition-all duration-1000"
-              style={{ width: `${(3 - redirectCountdown + 1) * 33.33}%` }}
+              style={{ width: `${(3 - redirectCountdown) * 33.33}%` }}
             />
           </div>
           <button
             onClick={() => router.push('/application/referees')}
-            className="w-full py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
+            className="w-full py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl hover:from-green-700 hover:to-emerald-700 font-medium transition-all shadow-md hover:shadow-lg"
           >
             Continue Now
           </button>
@@ -503,7 +502,7 @@ export default function ApplicationFeesPage() {
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <WarningModal />
-      <SuccessModal />
+      <AutoRedirectModal />
       
       <div className="max-w-4xl mx-auto px-4">
         <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
@@ -658,7 +657,7 @@ export default function ApplicationFeesPage() {
                 <div>
                   <p className="text-sm font-medium text-green-800">Payment Verified!</p>
                   <p className="text-sm text-green-700 mt-1">
-                    Your application fee has been verified. Click Continue to proceed.
+                    Your application fee has been verified. Redirecting automatically...
                   </p>
                 </div>
               </div>
@@ -832,8 +831,8 @@ export default function ApplicationFeesPage() {
             )}
 
             {/* Navigation Buttons */}
-            <div className={`mt-8 pt-6 border-t border-gray-200 flex justify-between ${submissionStatus === 'verified' && !redirectCountdown ? '' : 'flex-row-reverse'}`}>
-              {submissionStatus !== 'verified' && (
+            {submissionStatus !== 'verified' && (
+              <div className="mt-8 pt-6 border-t border-gray-200">
                 <button
                   onClick={handleBack}
                   className="px-6 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 flex items-center gap-2 font-medium"
@@ -841,18 +840,8 @@ export default function ApplicationFeesPage() {
                   <ChevronLeft className="w-4 h-4" />
                   Back
                 </button>
-              )}
-              
-              {submissionStatus === 'verified' && !redirectCountdown && (
-                <button
-                  onClick={handleContinue}
-                  className="px-6 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 font-medium"
-                >
-                  Continue
-                  <ArrowRight className="w-4 h-4" />
-                </button>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

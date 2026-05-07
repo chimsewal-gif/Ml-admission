@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Mail, Lock, Eye, EyeOff, Shield, Brain, AlertTriangle, CheckCircle } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, Shield, Brain, AlertTriangle, CheckCircle, GraduationCap, Users, UserCheck } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -105,6 +106,29 @@ export default function LoginPage() {
     }
   }
 
+  // Function to determine redirect path based on user role
+  const getRedirectPath = (role: string): string => {
+    const roleMap: Record<string, string> = {
+      'student': '/application/dashboard',
+      'applicant': '/application/dashboard',
+      'admin': '/appadmin/',
+      'administrator': '/appadmin/dashboard',
+      'admission_officer': '/appadmin/applications',
+      'admission officer': '/appadmin/applications',
+      'committee': '/commitee/dashboard',
+      'committee_member': '/commitee/dashboard',
+      'guest': '/application/select-type',
+    };
+    
+    const lowerRole = role.toLowerCase();
+    for (const [key, path] of Object.entries(roleMap)) {
+      if (lowerRole.includes(key) || key === lowerRole) {
+        return path;
+      }
+    }
+    return '/application/dashboard';
+  };
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
@@ -136,24 +160,49 @@ export default function LoginPage() {
       }
       
       if (data.user) {
+        // Determine the user's role
+        let userRole = data.user.role || 'guest';
+        
+        // If role is not set, try to determine from email or other fields
+        if (userRole === 'guest' && data.user.email) {
+          const email = data.user.email.toLowerCase();
+          if (email.includes('admin')) userRole = 'admin';
+          else if (email.includes('officer')) userRole = 'admission_officer';
+          else if (email.includes('committee')) userRole = 'committee';
+          else userRole = 'student';
+        }
+        
         const userData = {
           id: data.user.id,
           first_name: data.user.first_name || '',
           last_name: data.user.last_name || '',
           email: data.user.email || '',
           username: data.user.username || '',
-          role: data.user.role || 'guest'
+          role: userRole,
+          is_admin: userRole === 'admin' || userRole === 'administrator',
+          is_admission_officer: userRole === 'admission_officer',
+          is_committee: userRole === 'committee'
         };
         
         localStorage.setItem('user', JSON.stringify(userData));
+        localStorage.setItem('userRole', userRole);
         window.dispatchEvent(new Event('userLoggedIn'));
+        
+        const redirectPath = getRedirectPath(userRole);
+        
+        // Show role-specific success message
+        let roleMessage = '';
+        if (userRole === 'admin') roleMessage = 'Welcome Administrator!';
+        else if (userRole === 'admission_officer') roleMessage = 'Welcome Admission Officer!';
+        else if (userRole === 'committee') roleMessage = 'Welcome Committee Member!';
+        else roleMessage = 'Login successful!';
+        
+        setError(`✅ ${roleMessage} Redirecting...`);
+        
+        setTimeout(() => {
+          router.push(redirectPath);
+        }, 1500);
       }
-
-      setError('✅ Login successful! Redirecting...');
-      
-      setTimeout(() => {
-        router.push('/application/dashboard');
-      }, 1000);
 
     } catch (err: any) {
       console.error('Login error:', err);
@@ -198,14 +247,35 @@ export default function LoginPage() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center py-12 px-4">
       <div className="w-full max-w-md">
         <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
-          <div className="bg-gradient-to-r from-green-600 to-emerald-600 px-8 py-6">
-            <div className="text-center">
-              <h1 className="text-2xl font-bold text-white mb-2">Welcome Back</h1>
-              <p className="text-green-100 text-sm">Sign in to your account</p>
+          {/* Logo Section */}
+          <div className="flex justify-center pt-8 pb-4">
+            <div className="flex flex-col items-center">
+              <div className="w-20 h-20 bg-gradient-to-br from-green-600 to-emerald-600 rounded-2xl flex items-center justify-center shadow-lg">
+                <Image
+                  src="/logo.jpeg"
+                  alt="Mzuzu University Logo"
+                  width={56}
+                  height={56}
+                  className="rounded-xl"
+                />
+              </div>
+              <h2 className="text-xl font-bold text-gray-800 mt-3">Mzuzu University</h2>
+              <p className="text-xs text-gray-500">e-Admission Portal</p>
             </div>
           </div>
 
-          <div className="p-8">
+         
+          {/* Decorative divider */}
+          <div className="relative px-6">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-gray-200"></div>
+            </div>
+            <div className="relative flex justify-center text-xs">
+              <span className="px-3 bg-white text-gray-500">Secure Login</span>
+            </div>
+          </div>
+
+          <div className="p-8 pt-6">
             <form onSubmit={handleSubmit} className="space-y-6">
               {error && (
                 <div className={`rounded-lg p-3 text-center ${

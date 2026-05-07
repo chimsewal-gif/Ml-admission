@@ -1,37 +1,105 @@
 'use client';
 
 import Link from 'next/link';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { 
   FaGraduationCap, 
-  FaRobot, 
-  FaChartLine, 
-  FaUserCheck,
-  FaArrowRight,
-  FaCheckCircle,
-  FaShieldAlt,
-  FaClock,
   FaEnvelope,
   FaPhoneAlt,
   FaFacebook,
   FaTwitter,
-  FaLinkedin
+  FaLinkedin,
+  FaArrowRight,
+  FaCheckCircle,
+  FaTimesCircle,
+  FaClock
 } from 'react-icons/fa';
+import { useEffect, useState } from 'react';
+
+const API_BASE_URL = 'http://127.0.0.1:8000/api';
+
+interface ApplicationType {
+  id: string;
+  name: string;
+  description: string;
+  requirements: string[];
+  start_date: string;
+  end_date: string;
+  is_active: boolean;
+}
 
 export default function ApplyPage() {
-  const fadeInUp = {
-    initial: { opacity: 0, y: 30 },
-    animate: { opacity: 1, y: 0 },
-    transition: { duration: 0.6 }
-  };
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [applicationTypes, setApplicationTypes] = useState<ApplicationType[]>([]);
+  const [loading, setLoading] = useState(true);
+  
+  const backgroundImages = [
+    '/images/mzuni3.jpeg',
+    '/images/mzuni1.jpeg',
+    '/images/mzuni2.jpeg',
+    '/images/mzuni4.jpeg',
+  ];
 
-  const staggerContainer = {
-    animate: {
-      transition: {
-        staggerChildren: 0.1
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentImageIndex((prev) => (prev + 1) % backgroundImages.length);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [backgroundImages.length]);
+
+  useEffect(() => {
+    fetchApplicationTypes();
+  }, []);
+
+  const fetchApplicationTypes = async () => {
+    try {
+      setLoading(true);
+      const token = localStorage.getItem('token');
+      
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      };
+      
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
       }
+      
+      const response = await fetch(`${API_BASE_URL}/admin/application-types`, {
+        headers,
+      });
+      
+      const data = await response.json();
+      
+      if (data.success && data.data) {
+        setApplicationTypes(data.data);
+      }
+    } catch (err) {
+      console.error('Error fetching application types:', err);
+    } finally {
+      setLoading(false);
     }
   };
+
+  const isApplicationActive = (type: ApplicationType) => {
+    const now = new Date();
+    const startDate = new Date(type.start_date);
+    const endDate = new Date(type.end_date);
+    return now >= startDate && now <= endDate && type.is_active;
+  };
+
+  const getDaysRemaining = (type: ApplicationType) => {
+    const endDate = new Date(type.end_date);
+    const now = new Date();
+    const diffTime = endDate.getTime() - now.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays > 0 ? diffDays : 0;
+  };
+
+  // Only get active applications
+  const activeApplications = applicationTypes.filter(isApplicationActive);
+  const hasActiveApplications = activeApplications.length > 0;
+  const firstActiveApplication = activeApplications[0];
 
   return (
     <div className="min-h-screen bg-white">
@@ -61,10 +129,10 @@ export default function ApplyPage() {
       </div>
 
       {/* Navbar */}
-      <nav className="sticky top-0 z-50 bg-white shadow-md px-6 py-4">
+      <nav className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm shadow-md px-6 py-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3 group">
-            <div className="w-10 h-10 bg-gradient-to-br from-green-600 to-emerald-600 rounded-lg flex items-center justify-center shadow-md group-hover:shadow-lg transition-shadow">
+            <div className="w-10 h-10 bg-gradient-to-br from-green-600 to-emerald-600 rounded-lg flex items-center justify-center shadow-md">
               <FaGraduationCap className="text-white text-xl" />
             </div>
             <div>
@@ -73,22 +141,9 @@ export default function ApplyPage() {
             </div>
           </Link>
 
-          <div className="hidden md:flex gap-8 text-gray-700 font-medium">
-            {['Home', 'How to Apply', 'Programs', 'Guidelines', 'FAQ'].map((item) => (
-              <Link 
-                key={item} 
-                href={`/${item.toLowerCase().replace(/\s+/g, '-')}`}
-                className="relative group"
-              >
-                <span className="hover:text-green-600 transition-colors">{item}</span>
-                <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-green-600 transition-all group-hover:w-full"></span>
-              </Link>
-            ))}
-          </div>
-
           <Link 
             href="/login" 
-            className="px-5 py-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg font-medium hover:shadow-lg transition-all hover:-translate-y-0.5"
+            className="px-5 py-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg font-medium hover:shadow-lg transition-all"
           >
             Sign In
           </Link>
@@ -97,222 +152,110 @@ export default function ApplyPage() {
 
       {/* Hero Section */}
       <section className="relative h-[600px] flex items-center justify-center text-center overflow-hidden">
-        <div
-          className="absolute inset-0 bg-cover bg-center scale-105"
-          style={{ backgroundImage: "url('/images/mzuni3.jpeg')" }}
-        />
-        <div className="absolute inset-0 bg-gradient-to-r from-blue-900/80 to-green-900/80"></div>
-
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8 }}
-          className="relative max-w-4xl px-4 text-white"
-        >
+        <AnimatePresence mode="wait">
           <motion.div
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            transition={{ duration: 0.5, type: "spring" }}
-            className="inline-flex items-center gap-2 bg-white/20 backdrop-blur-sm px-4 py-2 rounded-full mb-6"
+            key={currentImageIndex}
+            initial={{ opacity: 0, scale: 1.1 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 1.05 }}
+            transition={{ duration: 1.5 }}
+            className="absolute inset-0 bg-cover bg-center"
+            style={{ backgroundImage: `url('${backgroundImages[currentImageIndex]}')` }}
+          />
+        </AnimatePresence>
+        
+        <div className="absolute inset-0 bg-gradient-to-r from-blue-900/50 to-green-900/50"></div>
+        
+        <div className="relative max-w-4xl px-4 text-white z-10">
+          {/* Dynamic Status Message */}
+          <motion.div
+            initial={{ opacity: 0, y: -50 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6 }}
+            className={`rounded-lg p-6 mb-8 inline-block mx-auto border border-white/20 backdrop-blur-md ${
+              hasActiveApplications 
+                ? 'bg-green-600/80' 
+                : 'bg-red-600/80'
+            }`}
           >
-            <FaRobot className="w-4 h-4" />
-            <span className="text-sm font-medium">AI-Powered Admissions</span>
+            <div className="text-center">
+              {loading ? (
+                <div className="flex items-center gap-3">
+                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+                  <p className="text-lg">Checking application status...</p>
+                </div>
+              ) : hasActiveApplications ? (
+                <>
+                  <p className="text-2xl font-bold mb-2">Applications are OPEN!</p>
+                  <p className="text-lg">{activeApplications.length} application type(s) currently available</p>
+                  <p className="text-sm mt-2">Apply now before deadlines close</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-2xl font-bold mb-2">Applications are CLOSED</p>
+                  <p className="text-lg">No active application types at this time</p>
+                  <p className="text-sm mt-2">Please check back later for upcoming intakes</p>
+                </>
+              )}
+            </div>
           </motion.div>
 
-          <h1 className="text-4xl md:text-6xl font-extrabold leading-tight mb-6">
-            Smart Admissions with
-            <span className="block text-transparent bg-clip-text bg-gradient-to-r from-green-300 to-blue-300">
-              Machine Learning
-            </span>
-          </h1>
-          
-          <p className="text-lg md:text-xl text-gray-200 mb-8 max-w-2xl mx-auto">
-            Apply to Mzuzu University through an intelligent e-Admission system that predicts success, 
-            enhances fairness, and simplifies your application journey.
-          </p>
-
-          <div className="flex justify-center gap-4 flex-wrap">
-            <Link 
-              href="/apply" 
-              className="px-8 py-3 bg-white text-green-700 rounded-lg font-semibold hover:shadow-xl transition-all hover:-translate-y-0.5 flex items-center gap-2 group"
-            >
-              Apply Now
-              <FaArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-            </Link>
-            <Link 
-              href="/about-ml" 
-              className="px-8 py-3 border-2 border-white rounded-lg font-semibold hover:bg-white/10 transition-all"
-            >
-              Learn About ML
-            </Link>
-          </div>
-        </motion.div>
-
-        {/* Scroll indicator */}
-        <motion.div 
-          animate={{ y: [0, 10, 0] }}
-          transition={{ duration: 1.5, repeat: Infinity }}
-          className="absolute bottom-8 left-1/2 transform -translate-x-1/2"
-        >
-          <div className="w-6 h-10 border-2 border-white rounded-full flex justify-center">
-            <div className="w-1 h-2 bg-white rounded-full mt-2 animate-bounce"></div>
-          </div>
-        </motion.div>
-      </section>
-
-      {/* About ML Section */}
-      <motion.section 
-        initial="initial"
-        whileInView="animate"
-        viewport={{ once: true }}
-        variants={fadeInUp}
-        className="py-20 px-6 max-w-7xl mx-auto"
-      >
-        <div className="text-center mb-12">
-          <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
-            AI-Powered Admission System
-          </h2>
-          <div className="w-20 h-1 bg-gradient-to-r from-green-600 to-emerald-600 mx-auto"></div>
-          <p className="text-gray-600 max-w-3xl mx-auto mt-6">
-            Our system uses Machine Learning to analyze applicant data and predict academic success. 
-            This helps the university make fair, data-driven decisions while giving students better 
-            chances based on merit and potential.
-          </p>
-        </div>
-
-        <motion.div 
-          variants={staggerContainer}
-          initial="initial"
-          whileInView="animate"
-          viewport={{ once: true }}
-          className="grid md:grid-cols-3 gap-8 mt-10"
-        >
-          {[
-            {
-              icon: <FaRobot className="text-4xl" />,
-              title: "Smart Predictions",
-              description: "ML models predict student performance based on past academic data.",
-              color: "blue",
-              gradient: "from-blue-500 to-blue-600"
-            },
-            {
-              icon: <FaChartLine className="text-4xl" />,
-              title: "Data-Driven Decisions",
-              description: "Admissions are enhanced using analytics and predictive insights.",
-              color: "green",
-              gradient: "from-green-500 to-green-600"
-            },
-            {
-              icon: <FaUserCheck className="text-4xl" />,
-              title: "Fair Selection",
-              description: "Ensures transparency and equal opportunity for all applicants.",
-              color: "purple",
-              gradient: "from-purple-500 to-purple-600"
-            }
-          ].map((item, index) => (
-            <motion.div
-              key={index}
-              variants={fadeInUp}
-              whileHover={{ y: -8 }}
-              className="group relative bg-white rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 overflow-hidden"
-            >
-              <div className={`absolute top-0 left-0 w-full h-1 bg-gradient-to-r ${item.gradient}`}></div>
-              <div className="p-8 text-center">
-                <div className={`inline-flex p-4 rounded-2xl bg-gradient-to-r ${item.gradient} text-white mb-5 group-hover:scale-110 transition-transform`}>
-                  {item.icon}
-                </div>
-                <h3 className="text-xl font-bold text-gray-800 mb-3">{item.title}</h3>
-                <p className="text-gray-600">{item.description}</p>
-              </div>
-            </motion.div>
-          ))}
-        </motion.div>
-      </motion.section>
-
-      {/* How It Works */}
-      <section className="py-20 bg-gradient-to-br from-gray-50 to-blue-50/30">
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
-              How It Works
-            </h2>
-            <div className="w-20 h-1 bg-gradient-to-r from-green-600 to-emerald-600 mx-auto"></div>
-            <p className="text-gray-600 mt-6">Simple steps to start your academic journey</p>
-          </div>
-
-          <div className="grid md:grid-cols-4 gap-6">
-            {[
-              { step: "01", title: "Create Account", icon: FaUserCheck, color: "blue" },
-              { step: "02", title: "Fill Application", icon: FaGraduationCap, color: "green" },
-              { step: "03", title: "ML Evaluation", icon: FaRobot, color: "purple" },
-              { step: "04", title: "Get Results", icon: FaChartLine, color: "orange" }
-            ].map((item, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.1 }}
-                viewport={{ once: true }}
-                whileHover={{ y: -5 }}
-                className="relative bg-white rounded-2xl shadow-md hover:shadow-xl transition-all p-6 text-center group"
-              >
-                <div className={`absolute -top-4 left-1/2 transform -translate-x-1/2 w-10 h-10 bg-gradient-to-r from-${item.color}-500 to-${item.color}-600 rounded-full flex items-center justify-center text-white font-bold`}>
-                  {item.step}
-                </div>
-                <div className={`mt-4 mb-4 inline-flex p-3 rounded-full bg-${item.color}-100 text-${item.color}-600 group-hover:scale-110 transition-transform`}>
-                  <item.icon className="w-6 h-6" />
-                </div>
-                <h3 className="font-bold text-lg text-gray-800">{item.title}</h3>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Stats Section */}
-      <section className="py-16 bg-gradient-to-r from-green-600 to-emerald-600 text-white">
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="grid md:grid-cols-4 gap-8 text-center">
-            {[
-              { number: "98%", label: "Application Success", icon: FaCheckCircle },
-              { number: "5000+", label: "Students Placed", icon: FaGraduationCap },
-              { number: "24/7", label: "Support Available", icon: FaClock },
-              { number: "100%", label: "Data Security", icon: FaShieldAlt }
-            ].map((stat, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, scale: 0.5 }}
-                whileInView={{ opacity: 1, scale: 1 }}
-                transition={{ delay: i * 0.1 }}
-                viewport={{ once: true }}
-              >
-                <stat.icon className="w-8 h-8 mx-auto mb-3 opacity-80" />
-                <div className="text-3xl font-bold">{stat.number}</div>
-                <div className="text-sm opacity-90">{stat.label}</div>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* CTA Section */}
-      <section className="py-20 px-6">
-        <div className="max-w-4xl mx-auto text-center">
+          {/* Application Name - Replaces TEACHER TRAINING COLLEGES */}
           <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            whileInView={{ opacity: 1, scale: 1 }}
-            viewport={{ once: true }}
-            className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-3xl p-12 shadow-xl"
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3, duration: 0.6 }}
           >
-            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
-              Start Your Journey Today
-            </h2>
-            <p className="text-gray-600 mb-8 text-lg">
-              Join Mzuzu University using our intelligent admission platform
-            </p>
+            {hasActiveApplications && firstActiveApplication ? (
+              <>
+                <h1 className="text-5xl md:text-7xl font-extrabold leading-tight mb-6">
+                  {firstActiveApplication.name.split(' ')[0]} {firstActiveApplication.name.split(' ')[1]}
+                  <span className="block text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 to-orange-300">
+                    {firstActiveApplication.name.split(' ').slice(2).join(' ') || 'APPLICATION'}
+                  </span>
+                </h1>
+                <div className="mt-4 flex flex-col items-center gap-3">
+                  <div className="flex items-center gap-2 text-lg">
+                    <FaClock className="w-5 h-5 text-yellow-300" />
+                    <span>Deadline: {new Date(firstActiveApplication.end_date).toLocaleDateString()}</span>
+                  </div>
+                  {getDaysRemaining(firstActiveApplication) > 0 && (
+                    <div className="text-sm bg-white/20 backdrop-blur-sm px-4 py-2 rounded-full">
+                      {getDaysRemaining(firstActiveApplication)} days remaining to apply
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              !loading && (
+                <h1 className="text-5xl md:text-7xl font-extrabold leading-tight mb-6">
+                  NO ACTIVE
+                  <span className="block text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 to-orange-300">
+                    APPLICATIONS
+                  </span>
+                </h1>
+              )
+            )}
+          </motion.div>
+
+          {/* CTA Button */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.6 }}
+            className="mt-8"
+          >
             <Link 
-              href="/apply" 
-              className="inline-flex items-center gap-2 px-8 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg font-semibold hover:shadow-xl transition-all hover:-translate-y-0.5 group"
+              href={hasActiveApplications ? "/login" : "#"}
+              onClick={(e) => {
+                if (!hasActiveApplications) {
+                  e.preventDefault();
+                  alert("No applications are currently open. Please check back later.");
+                }
+              }}
+              className={`inline-flex items-center gap-2 px-8 py-3 bg-white text-green-700 rounded-lg font-semibold hover:shadow-xl transition-all group ${
+                !hasActiveApplications ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
             >
               Apply Now
               <FaArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />

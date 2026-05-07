@@ -2,8 +2,9 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Shield, AlertTriangle, CheckCircle, Eye, EyeOff } from 'lucide-react';
+import { Shield, AlertTriangle, CheckCircle, Eye, EyeOff, GraduationCap } from 'lucide-react';
 import Link from 'next/link';
+import Image from 'next/image';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -139,14 +140,47 @@ export default function RegisterPage() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center py-12 px-4">
       <div className="w-full max-w-md">
         <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
-          <div className="bg-gradient-to-r from-green-600 to-emerald-600 px-8 py-6">
-            <div className="text-center">
-              <h1 className="text-2xl font-bold text-white mb-2">Create Account</h1>
-              <p className="text-green-100 text-sm">Register to start your application</p>
+          {/* Logo Section */}
+          <div className="flex justify-center pt-8 pb-4">
+            <div className="flex flex-col items-center">
+              <div className="w-20 h-20 bg-gradient-to-br from-green-600 to-emerald-600 rounded-2xl flex items-center justify-center shadow-lg">
+                <Image
+                  src="/logo.jpeg"
+                  alt="Mzuzu University Logo"
+                  width={56}
+                  height={56}
+                  className="rounded-xl"
+                  onError={(e) => {
+                    // Fallback if image doesn't exist
+                    const target = e.target as HTMLImageElement;
+                    target.style.display = 'none';
+                    const parent = target.parentElement;
+                    if (parent) {
+                      const fallback = document.createElement('div');
+                      fallback.className = 'text-white';
+                      fallback.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>';
+                      parent.appendChild(fallback);
+                    }
+                  }}
+                />
+              </div>
+              <h2 className="text-xl font-bold text-gray-800 mt-3">Mzuzu University</h2>
+              <p className="text-xs text-gray-500">e-Admission Portal</p>
             </div>
           </div>
 
-          <div className="p-8">
+          <div className="px-8 pb-2">
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-200"></div>
+              </div>
+              <div className="relative flex justify-center text-xs">
+                <span className="px-3 bg-white text-gray-500">Create Account</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-8 pt-6">
             {error && (
               <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
                 <div className="flex items-center gap-2">

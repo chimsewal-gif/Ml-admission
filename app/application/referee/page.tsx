@@ -6,7 +6,8 @@ import { useRouter } from 'next/navigation';
 import { 
   UserPlus, X, ChevronLeft, ChevronRight, Save, 
   Mail, Phone, Briefcase, GraduationCap, User, 
-  AlertCircle, Trash2, Edit, Eye 
+  AlertCircle, Trash2, Edit, Eye, Home, Heart,
+  CheckCircle
 } from 'lucide-react';
 
 const API_BASE_URL = 'http://127.0.0.1:8000/api';
@@ -22,6 +23,12 @@ interface Referee {
   referee_type: string;
 }
 
+interface Toast {
+  id: number;
+  message: string;
+  type: 'success' | 'error';
+}
+
 export default function RefereesPage() {
   const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
@@ -33,6 +40,8 @@ export default function RefereesPage() {
   const [referees, setReferees] = useState<Referee[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingReferee, setEditingReferee] = useState<Referee | null>(null);
+  const [applicationTypeName, setApplicationTypeName] = useState<string>('');
+  const [toasts, setToasts] = useState<Toast[]>([]);
   
   // Form state for add/edit modal
   const [formData, setFormData] = useState({
@@ -46,6 +55,19 @@ export default function RefereesPage() {
   });
   
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+  // Add toast notification
+  const addToast = (message: string, type: 'success' | 'error') => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(toast => toast.id !== id));
+    }, 4000);
+  };
+
+  const removeToast = (id: number) => {
+    setToasts(prev => prev.filter(toast => toast.id !== id));
+  };
 
   // Title options
   const titleOptions = ['Dr.', 'Prof.', 'Mr.', 'Ms.', 'Mrs.', 'Mx.'];
@@ -64,6 +86,10 @@ export default function RefereesPage() {
       return;
     }
     setToken(storedToken);
+    
+    const savedAppTypeName = localStorage.getItem('userApplicationTypeName');
+    setApplicationTypeName(savedAppTypeName || '');
+    
     fetchCurrentUser(storedToken);
   }, [router]);
 
@@ -88,7 +114,7 @@ export default function RefereesPage() {
       }
     } catch (err) {
       console.error('Error fetching current user:', err);
-      setError('Failed to load user information');
+      addToast('Failed to load user information', 'error');
       setLoading(false);
     }
   };
@@ -127,6 +153,7 @@ export default function RefereesPage() {
       }
     } catch (err) {
       console.error('Error loading referees:', err);
+      addToast('Failed to load referees', 'error');
       const saved = localStorage.getItem('application_referees');
       if (saved) {
         setReferees(JSON.parse(saved));
@@ -261,7 +288,7 @@ export default function RefereesPage() {
         setReferees(prev => prev.map(r => 
           r.id === editingReferee.id ? savedReferee! : r
         ));
-        setSuccess('Referee updated successfully!');
+        addToast('Referee updated successfully!', 'success');
       } else {
         // Fallback: update locally
         const updatedReferees = referees.map(r =>
@@ -269,14 +296,14 @@ export default function RefereesPage() {
         );
         setReferees(updatedReferees);
         localStorage.setItem('application_referees', JSON.stringify(updatedReferees));
-        setSuccess('Referee updated locally. Will sync when online.');
+        addToast('Referee updated locally. Will sync when online.', 'success');
       }
     } else {
       // Add new referee
       savedReferee = await saveRefereeToAPI(refereeToSave);
       if (savedReferee) {
         setReferees(prev => [...prev, savedReferee!]);
-        setSuccess('Referee added successfully!');
+        addToast('Referee added successfully!', 'success');
       } else {
         // Fallback: save locally
         const newReferee: Referee = {
@@ -286,15 +313,13 @@ export default function RefereesPage() {
         const updatedReferees = [...referees, newReferee];
         setReferees(updatedReferees);
         localStorage.setItem('application_referees', JSON.stringify(updatedReferees));
-        setSuccess('Referee saved locally. Will sync when online.');
+        addToast('Referee saved locally. Will sync when online.', 'success');
       }
     }
     
     resetForm();
     setShowAddModal(false);
     setSaving(false);
-    
-    setTimeout(() => setSuccess(null), 3000);
   };
 
   // Handle edit referee
@@ -325,32 +350,30 @@ export default function RefereesPage() {
     localStorage.setItem('application_referees', JSON.stringify(updatedReferees));
     
     if (apiDeleted) {
-      setSuccess('Referee deleted successfully');
+      addToast('Referee deleted successfully', 'success');
     } else {
-      setSuccess('Referee removed from local storage');
+      addToast('Referee removed from local storage', 'success');
     }
-    setTimeout(() => setSuccess(null), 3000);
   };
 
   // Handle back navigation
   const handleBack = () => {
-    router.push('/application/documents');
+    router.push('/application/work');
   };
 
   // Handle next navigation
   const handleNext = () => {
     if (referees.length === 0) {
-      setError('Please add at least one referee before continuing');
+      addToast('Please add at least one referee before continuing', 'error');
       return;
     }
-    router.push('/application/review');
+    router.push('/application/publication');
   };
 
   // Handle save all
   const handleSaveAll = () => {
     localStorage.setItem('application_referees', JSON.stringify(referees));
-    setSuccess('All referees saved successfully!');
-    setTimeout(() => setSuccess(null), 3000);
+    addToast('All referees saved successfully!', 'success');
   };
 
   if (loading) {
@@ -367,6 +390,72 @@ export default function RefereesPage() {
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-4xl mx-auto px-4">
+        
+        {/* Toast Notifications */}
+        <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 flex flex-col items-center space-y-2 pointer-events-none">
+          {toasts.map((toast) => (
+            <div
+              key={toast.id}
+              className={`pointer-events-auto flex items-center gap-3 px-5 py-3 rounded-lg shadow-lg animate-slide-down ${
+                toast.type === 'success' 
+                  ? 'bg-green-600 text-white' 
+                  : 'bg-red-600 text-white'
+              }`}
+            >
+              {toast.type === 'success' ? (
+                <CheckCircle className="w-5 h-5" />
+              ) : (
+                <AlertCircle className="w-5 h-5" />
+              )}
+              <span className="text-sm font-medium">{toast.message}</span>
+              <button
+                onClick={() => removeToast(toast.id)}
+                className="ml-2 hover:opacity-80 transition-opacity"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        {/* Breadcrumb Navigation */}
+        <div className="mb-6">
+          <nav className="flex items-center gap-2 text-sm">
+            <button
+              onClick={() => router.push('/')}
+              className="flex items-center gap-1 text-gray-600 hover:text-green-600 transition-colors"
+            >
+              <Home className="w-4 h-4" />
+              <span>Home</span>
+            </button>
+            <ChevronRight className="w-4 h-4 text-gray-400" />
+            <button
+              onClick={() => router.push('/application/select-type')}
+              className="text-gray-600 hover:text-green-600 transition-colors"
+            >
+              Application Type
+            </button>
+            <ChevronRight className="w-4 h-4 text-gray-400" />
+            <span className="text-gray-900 font-medium">Referees</span>
+          </nav>
+        </div>
+
+        {/* Selected Application Type Badge */}
+        {applicationTypeName && (
+          <div className="mb-6 flex justify-center">
+            <div className="inline-flex items-center gap-2 bg-green-100 text-green-700 px-4 py-2 rounded-full">
+              <span className="text-sm">Applying for:</span>
+              <span className="font-semibold">{applicationTypeName}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Header */}
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">Referees</h1>
+          <p className="text-gray-600 mt-2">Provide academic or professional referees</p>
+        </div>
+
         <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
           {/* Referees Header */}
           <div className="border-b border-gray-200 p-6">
@@ -383,19 +472,6 @@ export default function RefereesPage() {
           </div>
 
           <div className="p-6">
-            {/* Alerts */}
-            {error && (
-              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-                <p className="text-sm text-red-700">{error}</p>
-              </div>
-            )}
-            
-            {success && (
-              <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
-                <p className="text-sm text-green-700">{success}</p>
-              </div>
-            )}
-
             {/* Referees Section */}
             <div>
               <div className="flex items-center justify-between mb-4">
@@ -488,14 +564,14 @@ export default function RefereesPage() {
               <div className="flex gap-3">
                 <button
                   onClick={handleSaveAll}
-                  className="px-6 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 font-medium"
+                  className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 font-medium"
                 >
                   <Save className="w-4 h-4" />
                   Save
                 </button>
                 <button
                   onClick={handleNext}
-                  className="px-6 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 font-medium"
+                  className="px-6 py-2.5 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:from-green-700 hover:to-emerald-700 transition-colors flex items-center gap-2 font-medium shadow-md"
                 >
                   Next
                   <ChevronRight className="w-4 h-4" />
@@ -504,16 +580,25 @@ export default function RefereesPage() {
             </div>
           </div>
         </div>
+
+        <div className="text-center mt-6">
+          <p className="text-gray-500 text-sm">
+            Add at least one referee. Academic referees are preferred.
+          </p>
+        </div>
       </div>
 
-      {/* Add/Edit Referee Modal */}
+      {/* Add/Edit Referee Modal - Transparent Background */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between p-6 border-b border-gray-200 sticky top-0 bg-white">
-              <h3 className="text-lg font-semibold text-gray-800">
-                {editingReferee ? 'Edit Referee' : 'Add Referee'}
-              </h3>
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto my-8">
+            <div className="flex items-center justify-between p-5 border-b border-gray-200 sticky top-0 bg-white">
+              <div className="flex items-center gap-2">
+                <Heart className="w-5 h-5 text-green-600" />
+                <h3 className="text-lg font-semibold text-gray-800">
+                  {editingReferee ? 'Edit Referee' : 'Add Referee'}
+                </h3>
+              </div>
               <button
                 onClick={() => {
                   setShowAddModal(false);
@@ -526,9 +611,9 @@ export default function RefereesPage() {
               </button>
             </div>
             
-            <div className="p-6 space-y-5">
-              {/* First Name & Last Name */}
+            <div className="p-5">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* First Name */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     First Name <span className="text-red-500">*</span>
@@ -542,7 +627,7 @@ export default function RefereesPage() {
                       if (formErrors.first_name) setFormErrors({ ...formErrors, first_name: '' });
                     }}
                     placeholder="Enter first name..."
-                    className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 ${
+                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 ${
                       formErrors.first_name ? 'border-red-500' : 'border-gray-300'
                     }`}
                   />
@@ -553,6 +638,7 @@ export default function RefereesPage() {
                   )}
                 </div>
                 
+                {/* Last Name */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Last Name <span className="text-red-500">*</span>
@@ -566,7 +652,7 @@ export default function RefereesPage() {
                       if (formErrors.last_name) setFormErrors({ ...formErrors, last_name: '' });
                     }}
                     placeholder="Enter last name..."
-                    className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 ${
+                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 ${
                       formErrors.last_name ? 'border-red-500' : 'border-gray-300'
                     }`}
                   />
@@ -574,10 +660,8 @@ export default function RefereesPage() {
                     <p className="text-red-500 text-xs mt-1">{formErrors.last_name}</p>
                   )}
                 </div>
-              </div>
-              
-              {/* Title & Gender */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                {/* Title */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Title <span className="text-red-500">*</span>
@@ -589,7 +673,7 @@ export default function RefereesPage() {
                       setFormData({ ...formData, title: e.target.value });
                       if (formErrors.title) setFormErrors({ ...formErrors, title: '' });
                     }}
-                    className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white ${
+                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white ${
                       formErrors.title ? 'border-red-500' : 'border-gray-300'
                     }`}
                   >
@@ -603,6 +687,7 @@ export default function RefereesPage() {
                   )}
                 </div>
                 
+                {/* Gender */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Gender <span className="text-red-500">*</span>
@@ -614,7 +699,7 @@ export default function RefereesPage() {
                       setFormData({ ...formData, gender: e.target.value });
                       if (formErrors.gender) setFormErrors({ ...formErrors, gender: '' });
                     }}
-                    className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white ${
+                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white ${
                       formErrors.gender ? 'border-red-500' : 'border-gray-300'
                     }`}
                   >
@@ -627,10 +712,8 @@ export default function RefereesPage() {
                     <p className="text-red-500 text-xs mt-1">{formErrors.gender}</p>
                   )}
                 </div>
-              </div>
-              
-              {/* Email & Phone */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                {/* Email */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Email Address <span className="text-red-500">*</span>
@@ -644,7 +727,7 @@ export default function RefereesPage() {
                       if (formErrors.email) setFormErrors({ ...formErrors, email: '' });
                     }}
                     placeholder="Enter email address..."
-                    className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 ${
+                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 ${
                       formErrors.email ? 'border-red-500' : 'border-gray-300'
                     }`}
                   />
@@ -653,6 +736,7 @@ export default function RefereesPage() {
                   )}
                 </div>
                 
+                {/* Phone Number */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Phone Number <span className="text-red-500">*</span>
@@ -666,7 +750,7 @@ export default function RefereesPage() {
                       if (formErrors.phone_number) setFormErrors({ ...formErrors, phone_number: '' });
                     }}
                     placeholder="Enter phone number..."
-                    className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 ${
+                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 ${
                       formErrors.phone_number ? 'border-red-500' : 'border-gray-300'
                     }`}
                   />
@@ -674,50 +758,50 @@ export default function RefereesPage() {
                     <p className="text-red-500 text-xs mt-1">{formErrors.phone_number}</p>
                   )}
                 </div>
-              </div>
-              
-              {/* Referee Type */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Referee Type <span className="text-red-500">*</span>
-                </label>
-                <select
-                  name="referee_type"
-                  value={formData.referee_type}
-                  onChange={(e) => {
-                    setFormData({ ...formData, referee_type: e.target.value });
-                    if (formErrors.referee_type) setFormErrors({ ...formErrors, referee_type: '' });
-                  }}
-                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white ${
-                    formErrors.referee_type ? 'border-red-500' : 'border-gray-300'
-                  }`}
-                >
-                  <option value="">Select...</option>
-                  {refereeTypeOptions.map((option) => (
-                    <option key={option} value={option}>{option}</option>
-                  ))}
-                </select>
-                {formErrors.referee_type && (
-                  <p className="text-red-500 text-xs mt-1">{formErrors.referee_type}</p>
-                )}
+
+                {/* Referee Type */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Referee Type <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    name="referee_type"
+                    value={formData.referee_type}
+                    onChange={(e) => {
+                      setFormData({ ...formData, referee_type: e.target.value });
+                      if (formErrors.referee_type) setFormErrors({ ...formErrors, referee_type: '' });
+                    }}
+                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white ${
+                      formErrors.referee_type ? 'border-red-500' : 'border-gray-300'
+                    }`}
+                  >
+                    <option value="">Select...</option>
+                    {refereeTypeOptions.map((option) => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
+                  {formErrors.referee_type && (
+                    <p className="text-red-500 text-xs mt-1">{formErrors.referee_type}</p>
+                  )}
+                </div>
               </div>
             </div>
             
-            <div className="flex gap-3 p-6 pt-0 border-t border-gray-200 mt-4 sticky bottom-0 bg-white">
+            <div className="flex gap-3 p-5 pt-0 border-t border-gray-200 mt-2">
               <button
                 onClick={() => {
                   setShowAddModal(false);
                   resetForm();
                   setError(null);
                 }}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium text-sm"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSaveRecord}
                 disabled={saving}
-                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 font-medium text-sm"
               >
                 {saving ? (
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
@@ -732,6 +816,14 @@ export default function RefereesPage() {
           </div>
         </div>
       )}
+
+      <style jsx>{`
+        @keyframes slideDown {
+          from { transform: translateY(-100%); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+        .animate-slide-down { animation: slideDown 0.3s ease-out; }
+      `}</style>
     </div>
   );
 }

@@ -77,6 +77,18 @@ export default function ApplicationDocumentsPage() {
     'Other'
   ];
 
+  // Helper to update completion flag
+  const updateCompletionFlag = (hasDocuments: boolean) => {
+    if (hasDocuments) {
+      localStorage.setItem('documentsCompleted', 'true');
+      localStorage.setItem('documentsSaved', 'true');
+      sessionStorage.setItem('documentsCompleted', 'true');
+    } else {
+      localStorage.removeItem('documentsCompleted');
+      localStorage.removeItem('documentsSaved');
+    }
+  };
+
   // Get token from localStorage
   useEffect(() => {
     const storedToken = localStorage.getItem('token');
@@ -180,18 +192,28 @@ export default function ApplicationDocumentsPage() {
           
           setDocuments(formattedDocs);
           localStorage.setItem('application_documents', JSON.stringify(formattedDocs));
+          // Update completion flag
+          updateCompletionFlag(formattedDocs.length > 0);
         }
       } else {
         const saved = localStorage.getItem('application_documents');
         if (saved) {
-          setDocuments(JSON.parse(saved));
+          const savedDocs = JSON.parse(saved);
+          setDocuments(savedDocs);
+          updateCompletionFlag(savedDocs.length > 0);
+        } else {
+          updateCompletionFlag(false);
         }
       }
     } catch (err) {
       console.error('Error loading documents:', err);
       const saved = localStorage.getItem('application_documents');
       if (saved) {
-        setDocuments(JSON.parse(saved));
+        const savedDocs = JSON.parse(saved);
+        setDocuments(savedDocs);
+        updateCompletionFlag(savedDocs.length > 0);
+      } else {
+        updateCompletionFlag(false);
       }
     } finally {
       setLoading(false);
@@ -439,9 +461,11 @@ export default function ApplicationDocumentsPage() {
     
     if (uploadSuccess) {
       setSuccess(`Document uploaded and verified as ${newDocType}!`);
+      updateCompletionFlag(true);
     } else {
       localStorage.setItem('application_documents', JSON.stringify(updatedDocs));
       setSuccess('Document saved locally. Will sync when online.');
+      updateCompletionFlag(true);
     }
     
     setNewDocType('');
@@ -464,6 +488,9 @@ export default function ApplicationDocumentsPage() {
     const updatedDocs = documents.filter(d => d.id !== id);
     setDocuments(updatedDocs);
     localStorage.setItem('application_documents', JSON.stringify(updatedDocs));
+    
+    // Update completion flag
+    updateCompletionFlag(updatedDocs.length > 0);
     
     if (apiDeleted) {
       setSuccess('Document deleted successfully');
@@ -504,14 +531,21 @@ export default function ApplicationDocumentsPage() {
       window.open(fileUrl, '_blank');
     }
   };
-
-  const handleContinue = () => {
-    if (documents.length === 0) {
-      setError('Please add at least one supporting document before continuing');
-      return;
-    }
-    router.push('/application/application-fees');
-  };
+const handleContinue = () => {
+  if (documents.length === 0) {
+    setError('Please add at least one supporting document before continuing');
+    return;
+  }
+  // Ensure completion flag is set
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('documentsCompleted', 'true');
+    localStorage.setItem('documentsSaved', 'true');
+    sessionStorage.setItem('documentsCompleted', 'true');
+    // Dispatch storage event for sidebar to update
+    window.dispatchEvent(new StorageEvent('storage', { key: 'documentsCompleted' }));
+  }
+  router.push('/application/application-fees');
+};
 
   const formatFileSize = (bytes?: number): string => {
     if (!bytes || bytes === 0) return '0 Bytes';
@@ -846,7 +880,7 @@ export default function ApplicationDocumentsPage() {
             {/* Navigation Buttons */}
             <div className="mt-6 sm:mt-8 pt-4 sm:pt-6 border-t border-gray-200 flex flex-col sm:flex-row justify-between gap-3">
               <button
-                onClick={() => router.push('/application/fees')}
+                onClick={() => router.push('/application/teacher-subjects')}
                 className="px-4 py-2 sm:px-6 sm:py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 flex items-center justify-center gap-2 font-medium text-sm sm:text-base order-2 sm:order-1"
               >
                 <ChevronLeft className="w-4 h-4" />
@@ -854,12 +888,23 @@ export default function ApplicationDocumentsPage() {
               </button>
               <button
                 onClick={handleContinue}
-                className="px-5 py-2 sm:px-8 sm:py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center justify-center gap-2 font-medium text-sm sm:text-base order-1 sm:order-2"
+                disabled={documents.length === 0}
+                className={`px-5 py-2 sm:px-8 sm:py-3 rounded-lg flex items-center justify-center gap-2 font-medium text-sm sm:text-base order-1 sm:order-2 ${
+                  documents.length > 0
+                    ? 'bg-green-600 hover:bg-green-700 text-white'
+                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                }`}
               >
                 Continue
                 <ArrowRight className="w-4 h-5" />
               </button>
             </div>
+            
+            {documents.length === 0 && (
+              <p className="text-sm text-red-500 text-center mt-4">
+                Please add at least one supporting document to continue
+              </p>
+            )}
           </div>
         </div>
       </div>

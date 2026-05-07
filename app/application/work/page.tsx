@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { 
   FileText, Plus, Trash2, Edit3, Save, ArrowRight, AlertCircle, 
   CheckCircle, X, Calendar, Building, Upload, Download, XCircle, 
-  ChevronLeft, Briefcase, MapPin, Clock, FileText as FileTextIcon
+  ChevronLeft, Briefcase, MapPin, Clock, FileText as FileTextIcon, Home, ChevronRight
 } from 'lucide-react';
 
 const API_BASE_URL = 'http://127.0.0.1:8000/api';
@@ -54,6 +54,7 @@ export default function WorkHistoryPage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [toasts, setToasts] = useState<{ id: number; message: string; type: 'success' | 'error' }[]>([]);
+  const [applicationTypeName, setApplicationTypeName] = useState<string>('');
   
   // Form state
   const [formData, setFormData] = useState<WorkRecord>({
@@ -88,6 +89,9 @@ export default function WorkHistoryPage() {
       return;
     }
     setToken(storedToken);
+    
+    const savedAppTypeName = localStorage.getItem('userApplicationTypeName');
+    setApplicationTypeName(savedAppTypeName || '');
   }, [router]);
 
   const authFetch = async (url: string, options: RequestInit = {}) => {
@@ -368,7 +372,7 @@ export default function WorkHistoryPage() {
   };
 
   const handleBack = () => {
-    router.back();
+    router.push('/application/education');
   };
 
   const handleSave = async () => {
@@ -376,11 +380,7 @@ export default function WorkHistoryPage() {
   };
 
   const handleNext = () => {
-    if (workRecords.length === 0) {
-      addToast('Please add at least one work record before continuing', 'error');
-      return;
-    }
-    router.push('/application/teacher-subjects');
+    router.push('/application/application-fees');
   };
 
   const formatDate = (dateString: string) => {
@@ -410,8 +410,9 @@ export default function WorkHistoryPage() {
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-5xl mx-auto px-4">
+        
         {/* Toast Notifications */}
-        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 flex flex-col items-center space-y-2 pointer-events-none">
+        <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 flex flex-col items-center space-y-2 pointer-events-none">
           {toasts.map((toast) => (
             <div
               key={toast.id}
@@ -437,9 +438,40 @@ export default function WorkHistoryPage() {
           ))}
         </div>
 
+        {/* Breadcrumb Navigation */}
+        <div className="mb-6">
+          <nav className="flex items-center gap-2 text-sm">
+            <button onClick={() => router.push('/')} className="flex items-center gap-1 text-gray-600 hover:text-green-600 transition-colors">
+              <Home className="w-4 h-4" />
+              <span>Home</span>
+            </button>
+            <ChevronRight className="w-4 h-4 text-gray-400" />
+            <button onClick={() => router.push('/application/select-type')} className="text-gray-600 hover:text-green-600 transition-colors">
+              Application Type
+            </button>
+            <ChevronRight className="w-4 h-4 text-gray-400" />
+            <span className="text-gray-900 font-medium">Work History</span>
+          </nav>
+        </div>
+
+        {/* Selected Application Type Badge */}
+        {applicationTypeName && (
+          <div className="mb-6 flex justify-center">
+            <div className="inline-flex items-center gap-2 bg-green-100 text-green-700 px-4 py-2 rounded-full">
+              <span className="text-sm">Applying for:</span>
+              <span className="font-semibold">{applicationTypeName}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Header */}
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">Work History</h1>
+          <p className="text-gray-600 mt-2">List your most recent work experience first</p>
+        </div>
+
         {/* Main Card */}
         <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
-          {/* Work History Header */}
           <div className="border-b border-gray-200 p-6">
             <div className="flex items-center gap-3 mb-2">
               <Briefcase className="w-6 h-6 text-gray-700" />
@@ -480,13 +512,13 @@ export default function WorkHistoryPage() {
                   <table className="w-full">
                     <thead className="bg-gray-50 border-b border-gray-200">
                       <tr>
-                      <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">ORGANIZATION</th>
-                      <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">JOB TITLE</th>
-                      <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">EMPLOYMENT TYPE</th>
-                      <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">LOCATION</th>
-                      <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">PERIOD</th>
-                      <th className="text-center px-4 py-3 text-sm font-semibold text-gray-700">ACTIONS</th>
-                    </tr>
+                        <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">ORGANIZATION</th>
+                        <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">JOB TITLE</th>
+                        <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">EMPLOYMENT TYPE</th>
+                        <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">LOCATION</th>
+                        <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">PERIOD</th>
+                        <th className="text-center px-4 py-3 text-sm font-semibold text-gray-700">ACTIONS</th>
+                      </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
                       {workRecords.map((record, index) => (
@@ -520,7 +552,7 @@ export default function WorkHistoryPage() {
               )}
             </div>
 
-            {/* Action Buttons - Back, Save, Next */}
+            {/* Action Buttons */}
             <div className="mt-8 pt-6 border-t border-gray-200 flex justify-between items-center">
               <button onClick={handleBack} className="px-6 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium flex items-center gap-2">
                 <ChevronLeft className="w-4 h-4" />
@@ -532,7 +564,7 @@ export default function WorkHistoryPage() {
                   <Save className="w-4 h-4" />
                   Save
                 </button>
-                <button onClick={handleNext} className="px-6 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium flex items-center gap-2">
+                <button onClick={handleNext} className="px-6 py-2.5 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:from-green-700 hover:to-emerald-700 transition-colors font-medium flex items-center gap-2 shadow-md">
                   Next
                   <ArrowRight className="w-4 h-4" />
                 </button>
@@ -541,120 +573,257 @@ export default function WorkHistoryPage() {
           </div>
         </div>
 
-        {/* Help Text */}
         <div className="text-center mt-6">
           <p className="text-gray-500 text-sm">Add your work experience. List your most recent position first.</p>
         </div>
       </div>
 
-      {/* Add/Edit Modal - Styled like the uploaded picture */}
+      {/* Add/Edit Modal - Transparent Background, Landscape, Medium Size */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full my-8">
-            <div className="p-6">
-              <h3 className="text-xl font-bold text-gray-800 mb-2">Add Work History</h3>
-              
-              <div className="space-y-5 mt-6">
-                {/* Organization */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Organization</label>
-                  <input type="text" name="organization" value={formData.organization} onChange={handleInputChange} placeholder="Enter organization..." className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500" />
-                </div>
-
-                {/* Job Title */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Job Title</label>
-                  <input type="text" name="job_title" value={formData.job_title} onChange={handleInputChange} placeholder="Enter job title..." className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500" />
-                </div>
-
-                {/* Employment Type */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Employment Type</label>
-                  <select name="employment_type" value={formData.employment_type} onChange={handleInputChange} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white">
-                    <option value="">Select...</option>
-                    {EMPLOYMENT_TYPES.map(type => (<option key={type} value={type}>{type}</option>))}
-                  </select>
-                </div>
-
-                {/* Location */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
-                  <input type="text" name="location" value={formData.location} onChange={handleInputChange} placeholder="Enter location..." className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500" />
-                </div>
-
-                {/* Location Type */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Location Type</label>
-                  <select name="location_type" value={formData.location_type} onChange={handleInputChange} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white">
-                    <option value="">Select...</option>
-                    {LOCATION_TYPES.map(type => (<option key={type} value={type}>{type}</option>))}
-                  </select>
-                </div>
-
-                {/* Start Date & End Date */}
-                <div className="grid grid-cols-2 gap-4">
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full my-8">
+            <div className="flex items-center justify-between p-5 border-b border-gray-200">
+              <div className="flex items-center gap-2">
+                <Briefcase className="w-5 h-5 text-green-600" />
+                <h3 className="text-lg font-semibold text-gray-800">
+                  {editingId ? 'Edit Work Record' : 'Add Work Record'}
+                </h3>
+              </div>
+              <button
+                onClick={() => {
+                  setShowAddModal(false);
+                  resetForm();
+                }}
+                className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            
+            <div className="p-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Left Column */}
+                <div className="space-y-3">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
-                    <input type="date" name="start_date" value={formData.start_date} onChange={handleInputChange} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500" />
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Organization <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      name="organization"
+                      value={formData.organization}
+                      onChange={handleInputChange}
+                      placeholder="Enter organization name"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
+                    />
                   </div>
+
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
-                    <input type="date" name="end_date" value={formData.end_date} onChange={handleInputChange} disabled={formData.currently_working} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 disabled:bg-gray-100" />
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Job Title <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      name="job_title"
+                      value={formData.job_title}
+                      onChange={handleInputChange}
+                      placeholder="Enter job title"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Employment Type
+                    </label>
+                    <select
+                      name="employment_type"
+                      value={formData.employment_type}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white text-sm"
+                    >
+                      <option value="">Select employment type</option>
+                      {EMPLOYMENT_TYPES.map(type => (
+                        <option key={type} value={type}>{type}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Location
+                    </label>
+                    <input
+                      type="text"
+                      name="location"
+                      value={formData.location}
+                      onChange={handleInputChange}
+                      placeholder="Enter location (city, country)"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
+                    />
                   </div>
                 </div>
 
-                {/* Currently working checkbox */}
-                <div className="flex items-center gap-2">
-                  <input type="checkbox" name="currently_working" checked={formData.currently_working} onChange={handleInputChange} className="w-4 h-4 text-green-600 focus:ring-green-500 border-gray-300 rounded" />
-                  <label className="text-sm text-gray-700">Currently working here</label>
-                </div>
+                {/* Right Column */}
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Location Type
+                    </label>
+                    <select
+                      name="location_type"
+                      value={formData.location_type}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white text-sm"
+                    >
+                      <option value="">Select location type</option>
+                      {LOCATION_TYPES.map(type => (
+                        <option key={type} value={type}>{type}</option>
+                      ))}
+                    </select>
+                  </div>
 
-                {/* Responsibilities */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Responsibilities</label>
-                  <textarea name="responsibilities" value={formData.responsibilities} onChange={handleInputChange} rows={4} placeholder="Enter responsibilities..." className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-none" />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Start Date <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="date"
+                        name="start_date"
+                        value={formData.start_date}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        End Date
+                      </label>
+                      <input
+                        type="date"
+                        name="end_date"
+                        value={formData.end_date}
+                        onChange={handleInputChange}
+                        disabled={formData.currently_working}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 disabled:bg-gray-100 text-sm"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      name="currently_working"
+                      checked={formData.currently_working}
+                      onChange={handleInputChange}
+                      className="w-4 h-4 text-green-600 focus:ring-green-500 border-gray-300 rounded"
+                    />
+                    <label className="text-sm text-gray-700">
+                      I currently work here
+                    </label>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Responsibilities
+                    </label>
+                    <textarea
+                      name="responsibilities"
+                      value={formData.responsibilities}
+                      onChange={handleInputChange}
+                      rows={2}
+                      placeholder="Describe your key responsibilities and achievements..."
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-none text-sm"
+                    />
+                  </div>
                 </div>
               </div>
             </div>
             
-            {/* Modal Buttons */}
-            <div className="flex gap-3 p-6 pt-0">
-              <button onClick={() => { setShowAddModal(false); resetForm(); }} className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
+            <div className="flex gap-3 p-5 pt-0 border-t border-gray-200 mt-2">
+              <button
+                onClick={() => {
+                  setShowAddModal(false);
+                  resetForm();
+                }}
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium text-sm"
+              >
                 Cancel
               </button>
-              <button onClick={editingId ? handleUpdateRecord : handleAddRecord} disabled={saving} className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
-                {saving ? (<div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>) : (<><Save className="w-4 h-4" /> Save Record</>)}
+              <button
+                onClick={editingId ? handleUpdateRecord : handleAddRecord}
+                disabled={saving}
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 font-medium text-sm"
+              >
+                {saving ? (
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    {editingId ? 'Update Record' : 'Save Record'}
+                  </>
+                )}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete Confirmation Modal - Transparent Background */}
       {showDeleteModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
-            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+            <div className="flex items-center justify-between p-5 border-b border-gray-200">
               <h3 className="text-lg font-semibold text-gray-800">Confirm Delete</h3>
-              <button onClick={() => { setShowDeleteModal(false); setDeleteId(null); }} className="p-1 hover:bg-gray-100 rounded-lg transition-colors">
+              <button
+                onClick={() => {
+                  setShowDeleteModal(false);
+                  setDeleteId(null);
+                }}
+                className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+              >
                 <X className="w-5 h-5 text-gray-500" />
               </button>
             </div>
-            <div className="p-6">
-              <div className="flex items-center justify-center mb-4">
-                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center">
-                  <Trash2 className="w-8 h-8 text-red-600" />
+            
+            <div className="p-5">
+              <div className="flex items-center justify-center mb-3">
+                <div className="w-14 h-14 bg-red-100 rounded-full flex items-center justify-center">
+                  <Trash2 className="w-7 h-7 text-red-600" />
                 </div>
               </div>
-              <p className="text-center text-gray-700 mb-2">Are you sure you want to delete this work record?</p>
-              <p className="text-center text-gray-500 text-sm">This action cannot be undone.</p>
+              <p className="text-center text-gray-700 mb-1">
+                Are you sure you want to delete this work record?
+              </p>
+              <p className="text-center text-gray-500 text-xs">
+                This action cannot be undone.
+              </p>
             </div>
-            <div className="flex gap-3 p-6 pt-0">
-              <button onClick={() => { setShowDeleteModal(false); setDeleteId(null); }} className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
+            
+            <div className="flex gap-3 p-5 pt-0">
+              <button
+                onClick={() => {
+                  setShowDeleteModal(false);
+                  setDeleteId(null);
+                }}
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium text-sm"
+              >
                 Cancel
               </button>
-              <button onClick={confirmDelete} disabled={saving} className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
-                {saving ? (<div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>) : (<><Trash2 className="w-4 h-4" /> Delete</>)}
+              <button
+                onClick={confirmDelete}
+                disabled={saving}
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 font-medium text-sm"
+              >
+                {saving ? (
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    Delete
+                  </>
+                )}
               </button>
             </div>
           </div>
