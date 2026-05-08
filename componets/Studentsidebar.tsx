@@ -88,6 +88,26 @@ export default function StudentSidebar() {
   const [selectedStudyRoute, setSelectedStudyRoute] = useState<string>('');
   const [isPostgraduate, setIsPostgraduate] = useState(false);
 
+  // Listen for storage events to update completion status in real-time
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'teachingSubjectsCompleted' || e.key === 'teachingSubjectsSaved') {
+        // Refresh the completion status
+        const teachingFlag = safeLocalStorage.getItem('teachingSubjectsCompleted');
+        if (teachingFlag === 'true') {
+          if (!completedSections.includes('Teaching Subjects')) {
+            setCompletedSections(prev => [...prev, 'Teaching Subjects']);
+          }
+        } else {
+          setCompletedSections(prev => prev.filter(s => s !== 'Teaching Subjects'));
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, [completedSections]);
+
   const getNavItems = () => {
     if (isPostgraduate) {
       return [...baseNavItems, ...postgraduateNavItems, ...commonNavItems].sort((a, b) => a.order - b.order);
@@ -140,6 +160,12 @@ export default function StudentSidebar() {
       completed.push('Select Study Route');
       const routeName = safeLocalStorage.getItem('userStudyRouteName');
       setSelectedStudyRoute(routeName || studyRoute || '');
+    }
+    
+    // Check Teaching Subjects from localStorage
+    const teachingFlag = safeLocalStorage.getItem('teachingSubjectsCompleted');
+    if (teachingFlag === 'true') {
+      completed.push('Teaching Subjects');
     }
     
     return completed;
@@ -222,27 +248,42 @@ export default function StudentSidebar() {
           completed.push('Education');
         }
 
-        // 7. Teaching Subjects
+        // 7. Teaching Subjects - FIXED: Better API response handling
+        console.log('📚 Fetching teaching subjects...');
         const teachingSubjectsResult = await safeFetch(`${API_BASE_URL}/teaching-subjects/`, {
           headers: { 'Authorization': `Bearer ${token}` },
         });
         
+        console.log('Teaching subjects API response:', teachingSubjectsResult);
+        
         if (teachingSubjectsResult.success && teachingSubjectsResult.data) {
           let subjectsArray = null;
+          
+          // Handle different response formats
           if (Array.isArray(teachingSubjectsResult.data)) {
             subjectsArray = teachingSubjectsResult.data;
           } else if (teachingSubjectsResult.data.data && Array.isArray(teachingSubjectsResult.data.data)) {
             subjectsArray = teachingSubjectsResult.data.data;
+          } else if (teachingSubjectsResult.data.subjects && Array.isArray(teachingSubjectsResult.data.subjects)) {
+            subjectsArray = teachingSubjectsResult.data.subjects;
           }
           
-          if (subjectsArray && subjectsArray.length > 0) {
+          // Also check for count > 0 in response
+          const count = teachingSubjectsResult.data.count || (subjectsArray ? subjectsArray.length : 0);
+          
+          if ((subjectsArray && subjectsArray.length > 0) || count > 0) {
+            console.log('✅ Teaching subjects found! Adding to completed sections.');
             completed.push('Teaching Subjects');
             safeLocalStorage.setItem('teachingSubjectsCompleted', 'true');
+          } else {
+            console.log('⚠️ No teaching subjects found in API response');
           }
         }
         
+        // Double-check localStorage for teaching subjects flag
         const teachingFlag = safeLocalStorage.getItem('teachingSubjectsCompleted');
         if (teachingFlag === 'true' && !completed.includes('Teaching Subjects')) {
+          console.log('✅ Teaching subjects flag found in localStorage');
           completed.push('Teaching Subjects');
         }
 
@@ -317,6 +358,7 @@ export default function StudentSidebar() {
           completed.push('Submit Application');
         }
 
+        console.log('✅ Final completed sections:', completed);
         setCompletedSections(completed);
         setApiError(false);
       } catch (err) {
@@ -329,6 +371,19 @@ export default function StudentSidebar() {
 
     fetchProgress();
   }, []);
+
+  // Also listen for custom events from the teacher-subjects page
+  useEffect(() => {
+    const handleTeachingSubjectsSaved = () => {
+      console.log('📢 Teaching subjects saved event received');
+      if (!completedSections.includes('Teaching Subjects')) {
+        setCompletedSections(prev => [...prev, 'Teaching Subjects']);
+      }
+    };
+
+    window.addEventListener('teachingSubjectsSaved', handleTeachingSubjectsSaved);
+    return () => window.removeEventListener('teachingSubjectsSaved', handleTeachingSubjectsSaved);
+  }, [completedSections]);
 
   useEffect(() => {
     if (isOpen) {
@@ -589,7 +644,11 @@ export default function StudentSidebar() {
                   >
                     <Icon className={iconClasses} />
                     <span className="text-sm font-medium">{label}</span>
-                    {isComplete && required && label !== 'Submit Application' && label !== 'Select Application Type' && label !== 'Select Study Route' && (
+                    {isComplete && required && label !== 'Submit Application' && label !== 'Select Application Type' && label !== 'Select Study Route' && label !== 'Teaching Subjects' && (
+                      <CheckCircle className="w-3 h-3 ml-auto text-green-500 dark:text-green-400" />
+                    )}
+                    {/* Show checkmark for Teaching Subjects when complete */}
+                    {label === 'Teaching Subjects' && isComplete && (
                       <CheckCircle className="w-3 h-3 ml-auto text-green-500 dark:text-green-400" />
                     )}
                     {(label === 'Select Application Type' && selectedApplicationType) && (
