@@ -2,16 +2,41 @@
 
 import { useState, useEffect } from 'react';
 import Button from '@/componets/Button';
-import { CheckCircle, AlertCircle, FileText, User, BookOpen, CreditCard, Upload, Bell, Calendar, PlusCircle, ChevronRight, Send, Inbox } from 'lucide-react';
+import { CheckCircle, AlertCircle, FileText, Users, Layers, Route, School, User, BookOpen, CreditCard, Upload, Bell, Calendar, PlusCircle, ChevronRight, Send, Inbox, Award, GraduationCap } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000/api';
 
+// Helper function for localStorage
+const safeLocalStorage = {
+  getItem: (key: string): string | null => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem(key);
+    }
+    return null;
+  },
+  setItem: (key: string, value: string): void => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(key, value);
+    }
+  },
+  removeItem: (key: string): void => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(key);
+    }
+  }
+};
+
 interface SectionProgress {
   personalInfo: boolean;
+  nextOfKin: boolean;
+  applicationType: boolean;
+  studyRoute: boolean;
   academicBackground: boolean;
+  programmeChoice: boolean;
+  education: boolean;
+  teachingSubjects: boolean;
   documents: boolean;
-  programSelection: boolean;
   payment: boolean;
 }
 
@@ -40,16 +65,22 @@ export default function DashboardPage() {
   const [user, setUser] = useState<any>(null);
   const [sectionProgress, setSectionProgress] = useState<SectionProgress>({
     personalInfo: false,
+    nextOfKin: false,
+    applicationType: false,
+    studyRoute: false,
     academicBackground: false,
+    programmeChoice: false,
+    education: false,
+    teachingSubjects: false,
     documents: false,
-    programSelection: false,
     payment: false
   });
   const [submissionStatus, setSubmissionStatus] = useState<{ is_submitted: boolean; reference_number?: string }>({ is_submitted: false });
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [deadlines, setDeadlines] = useState<Deadline[]>([]);
-  const [debugInfo, setDebugInfo] = useState<any>(null);
+  const [selectedApplicationType, setSelectedApplicationType] = useState<string>('');
+  const [isPostgraduate, setIsPostgraduate] = useState(false);
 
   const getToken = () => {
     if (typeof window !== 'undefined') {
@@ -58,12 +89,110 @@ export default function DashboardPage() {
     return null;
   };
 
+  // Helper to check Documents completion - MUST MATCH SIDEBAR LOGIC EXACTLY
+  const isDocumentsComplete = () => {
+    const documentsFlag = safeLocalStorage.getItem('documentsCompleted');
+    const documentsSaved = safeLocalStorage.getItem('documentsSaved');
+    const storedDocs = safeLocalStorage.getItem('application_documents');
+    
+    if (documentsFlag === 'true' || documentsSaved === 'true') return true;
+    if (storedDocs) {
+      try {
+        const docs = JSON.parse(storedDocs);
+        if (docs && docs.length > 0) return true;
+      } catch (e) {}
+    }
+    return sectionProgress.documents;
+  };
+
+  // Calculate completed required sections (matching sidebar - excludes Teaching Subjects)
+  const getCompletedRequiredCount = () => {
+    let count = 0;
+    if (sectionProgress.personalInfo) count++;
+    if (sectionProgress.nextOfKin) count++;
+    if (sectionProgress.applicationType) count++;
+    if (sectionProgress.studyRoute) count++;
+    if (sectionProgress.academicBackground) count++;
+    if (sectionProgress.programmeChoice) count++;
+    if (sectionProgress.education) count++;
+    if (isDocumentsComplete()) count++;
+    if (sectionProgress.payment) count++;
+    return count;
+  };
+
+  const TOTAL_REQUIRED_SECTIONS = 9; // Excluding Teaching Subjects
+
+  // Calculate overall progress - EXACT same calculation for both places
+  const completedCount = getCompletedRequiredCount();
+  const exactProgress = (completedCount / TOTAL_REQUIRED_SECTIONS) * 100;
+  const progress = Math.round(exactProgress);
+  const remainingCount = TOTAL_REQUIRED_SECTIONS - completedCount;
+  const isSubmitted = submissionStatus.is_submitted;
+
+  const stats = {
+    active: completedCount,
+    submitted: isSubmitted ? 1 : 0,
+    accepted: 0,
+    messages: unreadCount
+  };
+
+  // Check localStorage for completion flags
+  const checkLocalStorageCompletion = () => {
+    const flags = {
+      personalInfo: safeLocalStorage.getItem('profileCompleted') === 'true',
+      nextOfKin: safeLocalStorage.getItem('nextOfKinCompleted') === 'true',
+      applicationType: safeLocalStorage.getItem('applicationTypeCompleted') === 'true',
+      studyRoute: safeLocalStorage.getItem('studyRouteCompleted') === 'true',
+      academicBackground: safeLocalStorage.getItem('msceResultsCompleted') === 'true',
+      programmeChoice: safeLocalStorage.getItem('programmeChoiceCompleted') === 'true',
+      education: safeLocalStorage.getItem('educationCompleted') === 'true',
+      teachingSubjects: safeLocalStorage.getItem('teachingSubjectsCompleted') === 'true',
+      documents: safeLocalStorage.getItem('documentsCompleted') === 'true' || safeLocalStorage.getItem('documentsSaved') === 'true',
+      payment: safeLocalStorage.getItem('applicationFeesCompleted') === 'true'
+    };
+    
+    // Also check for stored documents
+    if (!flags.documents) {
+      const storedDocs = safeLocalStorage.getItem('application_documents');
+      if (storedDocs) {
+        try {
+          const docs = JSON.parse(storedDocs);
+          if (docs && docs.length > 0) {
+            flags.documents = true;
+          }
+        } catch (e) {}
+      }
+    }
+    
+    return flags;
+  };
+
   useEffect(() => {
     loadUserData();
     checkSubmissionStatus();
     loadNotifications();
     loadDeadlines();
+    
+    // Listen for storage events to update progress in real-time
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'documentsCompleted' || e.key === 'documentsSaved' ||
+          e.key === 'teachingSubjectsCompleted' || e.key === 'profileCompleted' ||
+          e.key === 'nextOfKinCompleted' || e.key === 'applicationTypeCompleted' ||
+          e.key === 'studyRouteCompleted' || e.key === 'msceResultsCompleted' ||
+          e.key === 'programmeChoiceCompleted' || e.key === 'educationCompleted' ||
+          e.key === 'applicationFeesCompleted') {
+        console.log('Storage event detected, refreshing progress');
+        refreshProgress();
+      }
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
+
+  const refreshProgress = async () => {
+    await checkSectionProgress();
+  };
 
   const loadUserData = async () => {
     try {
@@ -75,7 +204,8 @@ export default function DashboardPage() {
 
       const userData = localStorage.getItem('user');
       if (userData) {
-        setUser(JSON.parse(userData));
+        const parsed = JSON.parse(userData);
+        setUser(parsed);
       }
 
       const response = await fetch(`${API_BASE_URL}/me/`, {
@@ -90,6 +220,14 @@ export default function DashboardPage() {
         setUser(data);
         localStorage.setItem('user', JSON.stringify(data));
       }
+
+      // Check application type
+      const appType = safeLocalStorage.getItem('userApplicationType');
+      if (appType === 'masters' || appType === 'phd') {
+        setIsPostgraduate(true);
+      }
+      const typeName = safeLocalStorage.getItem('userApplicationTypeName');
+      setSelectedApplicationType(typeName || appType || '');
 
       await checkSectionProgress();
       
@@ -164,8 +302,8 @@ export default function DashboardPage() {
         
         if (response.ok) {
           const data = await response.json();
-          if (data.success) {
-            setDeadlines(data.data || []);
+          if (data.success && data.data && data.data.length > 0) {
+            setDeadlines(data.data);
             return;
           }
         }
@@ -235,112 +373,143 @@ export default function DashboardPage() {
     const token = getToken();
     if (!token) return;
 
+    // First check localStorage flags
+    const localStorageFlags = checkLocalStorageCompletion();
+    
+    const progress = { ...localStorageFlags };
+
     try {
-      // 1. Personal Info Check
-      const personalInfoRes = await fetch(`${API_BASE_URL}/personal-details/`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const personalData = await personalInfoRes.json();
-      const hasPersonalInfo = personalData.success && personalData.data && 
-        personalData.data.first_name && personalData.data.last_name && personalData.data.email;
-
-      // 2. Academic Background Check
-      const subjectsRes = await fetch(`${API_BASE_URL}/subject-records/`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const subjectsData = await subjectsRes.json();
-      const hasSubjects = subjectsData.success && subjectsData.data && subjectsData.data.length > 0;
-
-      // 3. Documents Check
-      const userRes = await fetch(`${API_BASE_URL}/me/`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const userData = await userRes.json();
-      
-      let hasDocuments = false;
-      if (userData.id) {
-        const docsRes = await fetch(`${API_BASE_URL}/applicants/${userData.id}/documents/`, {
+      // 1. Personal Info Check via API
+      if (!progress.personalInfo) {
+        const personalInfoRes = await fetch(`${API_BASE_URL}/personal-details/`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
-        const docsData = await docsRes.json();
-        hasDocuments = docsData.success && docsData.data && 
-          (docsData.data.msce || docsData.data.id_card);
+        const personalData = await personalInfoRes.json();
+        progress.personalInfo = personalData.success && personalData.data && 
+          personalData.data.first_name && personalData.data.last_name && personalData.data.email;
+        if (progress.personalInfo) {
+          safeLocalStorage.setItem('profileCompleted', 'true');
+        }
       }
 
-      // 4. Program Selection Check
-      const programmeRes = await fetch(`${API_BASE_URL}/applicants/programme/selection/`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const programmeData = await programmeRes.json();
-      const hasProgramme = programmeData.success && programmeData.data && programmeData.data.id;
-
-      // 5. Payment Check - FIXED VERSION
-      let hasPayment = false;
-      let paymentDebug = {};
-
-      try {
-        const paymentRes = await fetch(`${API_BASE_URL}/application-fees/`, {
+      // 2. Next of Kin Check
+      if (!progress.nextOfKin) {
+        const nextOfKinRes = await fetch(`${API_BASE_URL}/next-of-kin/`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
-        const paymentData = await paymentRes.json();
-        
-        console.log('Payment API Response:', paymentData);
-        paymentDebug = paymentData;
-        
-        // Check if payment exists in response
-        if (paymentData.success && paymentData.data) {
-          // Check if deposit_slip_path or file_path exists
-          if (paymentData.data.deposit_slip_path || paymentData.data.file_path) {
-            hasPayment = true;
-          }
-          // Check if status indicates payment is complete
-          if (paymentData.data.status === 'verified' || 
-              paymentData.data.status === 'approved' || 
-              paymentData.data.status === 'accepted') {
-            hasPayment = true;
-          }
-          // If there's a file_name, consider payment as started/complete
-          if (paymentData.data.file_name || paymentData.data.deposit_slip_path) {
-            hasPayment = true;
+        const nextOfKinData = await nextOfKinRes.json();
+        progress.nextOfKin = nextOfKinData.success && nextOfKinData.data && nextOfKinData.data.length > 0;
+        if (progress.nextOfKin) {
+          safeLocalStorage.setItem('nextOfKinCompleted', 'true');
+        }
+      }
+
+      // 3. Academic Background Check (MSCE Results)
+      if (!progress.academicBackground) {
+        const subjectsRes = await fetch(`${API_BASE_URL}/subject-records/`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const subjectsData = await subjectsRes.json();
+        progress.academicBackground = subjectsData.success && subjectsData.data && subjectsData.data.length > 0;
+        if (progress.academicBackground) {
+          safeLocalStorage.setItem('msceResultsCompleted', 'true');
+        }
+      }
+
+      // 4. Programme Choice Check
+      if (!progress.programmeChoice) {
+        const programmeRes = await fetch(`${API_BASE_URL}/applicants/programme-choices`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const programmeData = await programmeRes.json();
+        progress.programmeChoice = programmeData.success && programmeData.choices && programmeData.choices.length > 0;
+        if (progress.programmeChoice) {
+          safeLocalStorage.setItem('programmeChoiceCompleted', 'true');
+        }
+      }
+
+      // 5. Education Check
+      if (!progress.education) {
+        const educationRes = await fetch(`${API_BASE_URL}/education/`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const educationData = await educationRes.json();
+        progress.education = educationData.success && educationData.data && educationData.data.length > 0;
+        if (progress.education) {
+          safeLocalStorage.setItem('educationCompleted', 'true');
+        }
+      }
+
+      // 6. Teaching Subjects Check (optional, but we still track it)
+      if (!progress.teachingSubjects) {
+        const teachingRes = await fetch(`${API_BASE_URL}/teaching-subjects/`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const teachingData = await teachingRes.json();
+        let hasSubjects = false;
+        if (teachingData.success && teachingData.data) {
+          if (Array.isArray(teachingData.data)) {
+            hasSubjects = teachingData.data.length > 0;
+          } else if (teachingData.data.data && Array.isArray(teachingData.data.data)) {
+            hasSubjects = teachingData.data.data.length > 0;
           }
         }
-      } catch (paymentErr) {
-        console.error('Error checking payment:', paymentErr);
+        progress.teachingSubjects = hasSubjects;
+        if (progress.teachingSubjects) {
+          safeLocalStorage.setItem('teachingSubjectsCompleted', 'true');
+        }
       }
 
-      // Also check FeePayment endpoint as fallback
-      if (!hasPayment) {
-        try {
-          const feePaymentRes = await fetch(`${API_BASE_URL}/fee-payments/`, {
+      // 7. Documents Check
+      if (!progress.documents) {
+        const userRes = await fetch(`${API_BASE_URL}/me/`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const userData = await userRes.json();
+        
+        if (userData.id) {
+          const docsRes = await fetch(`${API_BASE_URL}/applicants/${userData.id}/documents/`, {
             headers: { 'Authorization': `Bearer ${token}` }
           });
-          const feePaymentData = await feePaymentRes.json();
-          
-          if (feePaymentData.success && feePaymentData.data && feePaymentData.data.deposit_slip_path) {
-            hasPayment = true;
+          const docsData = await docsRes.json();
+          progress.documents = docsData.success && docsData.data && 
+            (docsData.data.msce || docsData.data.id_card || docsData.data.payment_proof);
+          if (progress.documents) {
+            safeLocalStorage.setItem('documentsCompleted', 'true');
+            safeLocalStorage.setItem('documentsSaved', 'true');
           }
-        } catch (feeErr) {
-          console.log('FeePayment endpoint not available');
         }
       }
 
-      setDebugInfo({
-        hasPayment,
-        paymentData: paymentDebug,
-        timestamp: new Date().toISOString()
-      });
-
-      setSectionProgress({
-        personalInfo: hasPersonalInfo,
-        academicBackground: hasSubjects,
-        documents: hasDocuments,
-        programSelection: hasProgramme,
-        payment: hasPayment
-      });
+      // 8. Payment Check
+      if (!progress.payment) {
+        try {
+          const paymentRes = await fetch(`${API_BASE_URL}/application-fees/`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const paymentData = await paymentRes.json();
+          
+          if (paymentData.success && paymentData.data) {
+            if (paymentData.data.deposit_slip_path || paymentData.data.file_path) {
+              progress.payment = true;
+            }
+            if (paymentData.data.status === 'verified' || paymentData.data.status === 'approved') {
+              progress.payment = true;
+            }
+          }
+        } catch (paymentErr) {
+          console.error('Error checking payment:', paymentErr);
+        }
+        if (progress.payment) {
+          safeLocalStorage.setItem('applicationFeesCompleted', 'true');
+        }
+      }
 
     } catch (error) {
       console.error('Error checking section progress:', error);
     }
+
+    setSectionProgress(progress);
   };
 
   const checkSubmissionStatus = async () => {
@@ -360,43 +529,79 @@ export default function DashboardPage() {
     }
   };
 
-  const calculateOverallProgress = () => {
-    const completed = Object.values(sectionProgress).filter(Boolean).length;
-    return Math.round((completed / 5) * 100);
-  };
-
+  // Define sections (Teaching Subjects is optional)
   const sections = [
     {
       id: 'personalInfo',
       title: 'Personal Information',
       description: 'Your basic personal details',
       icon: User,
-      href: '/application/personal-details',
+      href: '/application/profile',
       color: 'blue'
     },
     {
+      id: 'nextOfKin',
+      title: 'Next of Kin',
+      description: 'Emergency contact information',
+      icon: Users,
+      href: '/application/next-of-kin',
+      color: 'indigo'
+    },
+    {
+      id: 'applicationType',
+      title: 'Application Type',
+      description: 'Select your application category',
+      icon: Layers,
+      href: '/application/select-type',
+      color: 'purple'
+    },
+    {
+      id: 'studyRoute',
+      title: 'Study Route',
+      description: 'Choose your study pathway',
+      icon: Route,
+      href: '/application/select-route',
+      color: 'pink'
+    },
+    {
       id: 'academicBackground',
-      title: 'Academic Background',
-      description: 'Your education history and qualifications',
+      title: 'MSCE Results',
+      description: 'Your academic qualifications',
       icon: BookOpen,
       href: '/application/High-school-records',
       color: 'green'
     },
     {
+      id: 'programmeChoice',
+      title: 'Programme Choice',
+      description: 'Select your preferred programme',
+      icon: School,
+      href: '/application/program-selection',
+      color: 'orange'
+    },
+    {
+      id: 'education',
+      title: 'Education',
+      description: 'Your education history',
+      icon: GraduationCap,
+      href: '/application/education',
+      color: 'teal'
+    },
+    {
+      id: 'teachingSubjects',
+      title: 'Teaching Subjects',
+      description: 'Subjects you can teach (Optional)',
+      icon: BookOpen,
+      href: '/application/teacher-subjects',
+      color: 'cyan'
+    },
+    {
       id: 'documents',
-      title: 'Documents Upload',
+      title: 'Documents',
       description: 'Upload required documents',
       icon: Upload,
       href: '/application/documents',
       color: 'purple'
-    },
-    {
-      id: 'programSelection',
-      title: 'Program Selection',
-      description: 'Choose your desired program',
-      icon: FileText,
-      href: '/application/program-selection',
-      color: 'orange'
     },
     {
       id: 'payment',
@@ -408,18 +613,7 @@ export default function DashboardPage() {
     }
   ];
 
-  const progress = calculateOverallProgress();
-  const isSubmitted = submissionStatus.is_submitted;
-
-  const completedSections = Object.values(sectionProgress).filter(Boolean).length;
-  const stats = {
-    active: completedSections,
-    submitted: submissionStatus.is_submitted ? 1 : 0,
-    accepted: 0,
-    messages: unreadCount
-  };
-
-  // Circle Progress Component with GREEN color
+  // Circle Progress Component
   const CircleProgress = ({ percentage, size = 140 }: { percentage: number; size?: number }) => {
     const radius = (size - 20) / 2;
     const circumference = 2 * Math.PI * radius;
@@ -531,10 +725,21 @@ export default function DashboardPage() {
         <div className="mb-8">
           <div className="flex items-center justify-between flex-wrap gap-4">
             <div>
-              {/* Email removed as requested */}
+              <h1 className="text-2xl font-bold text-gray-900">
+                Welcome back, {user?.first_name || 'Applicant'}!
+              </h1>
+              {selectedApplicationType && (
+                <p className="text-sm text-gray-500 mt-1 flex items-center gap-2">
+                  <Award className="w-4 h-4" />
+                  Applying as: {selectedApplicationType}
+                  {isPostgraduate && (
+                    <span className="ml-2 text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">Postgraduate</span>
+                  )}
+                </p>
+              )}
             </div>
             <button
-              onClick={() => router.push('/application/profile')}
+              onClick={() => router.push('/application/select-type')}
               className="flex items-center gap-2 px-5 py-2.5 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors shadow-sm"
             >
               <PlusCircle className="w-5 h-5" />
@@ -552,8 +757,9 @@ export default function DashboardPage() {
               </div>
               <ChevronRight className="w-4 h-4 text-gray-400" />
             </div>
-            <p className="text-3xl font-bold text-gray-900">{stats.active}</p>
-            <p className="text-sm text-gray-500">ACTIVE</p>
+            <p className="text-3xl font-bold text-gray-900">{completedCount}</p>
+            <p className="text-sm text-gray-500">SECTIONS COMPLETED</p>
+            <p className="text-xs text-gray-400 mt-1">out of {TOTAL_REQUIRED_SECTIONS}</p>
           </div>
 
           <div className="bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition-shadow">
@@ -609,16 +815,12 @@ export default function DashboardPage() {
 
             <div className="flex-1 grid grid-cols-2 gap-4 w-full">
               <div className="bg-gray-50 rounded-lg p-4 text-center">
-                <p className="text-2xl font-bold text-gray-900">
-                  {Object.values(sectionProgress).filter(Boolean).length}
-                </p>
+                <p className="text-2xl font-bold text-gray-900">{completedCount}</p>
                 <p className="text-xs text-gray-500">Sections Completed</p>
-                <p className="text-xs text-gray-400 mt-1">out of 5</p>
+                <p className="text-xs text-gray-400 mt-1">out of {TOTAL_REQUIRED_SECTIONS}</p>
               </div>
               <div className="bg-gray-50 rounded-lg p-4 text-center">
-                <p className="text-2xl font-bold text-gray-900">
-                  {5 - Object.values(sectionProgress).filter(Boolean).length}
-                </p>
+                <p className="text-2xl font-bold text-gray-900">{remainingCount}</p>
                 <p className="text-xs text-gray-500">Remaining</p>
                 <p className="text-xs text-gray-400 mt-1">sections to go</p>
               </div>
@@ -634,6 +836,9 @@ export default function DashboardPage() {
               </p>
             </div>
           )}
+          <div className="mt-4 text-center text-xs text-gray-400">
+            <span className="font-medium">Note:</span> Teaching Subjects is optional and not counted in progress
+          </div>
         </div>
 
         {/* Application Sections */}
@@ -641,8 +846,14 @@ export default function DashboardPage() {
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Application Sections</h2>
           
           {sections.map((section) => {
-            const isCompleted = sectionProgress[section.id as keyof SectionProgress];
+            let isCompleted: boolean;
+            if (section.id === 'documents') {
+              isCompleted = isDocumentsComplete();
+            } else {
+              isCompleted = sectionProgress[section.id as keyof SectionProgress];
+            }
             const Icon = section.icon;
+            const isRequired = section.id !== 'teachingSubjects';
             
             return (
               <div
@@ -667,7 +878,12 @@ export default function DashboardPage() {
                       }`} />
                     </div>
                     <div>
-                      <h3 className="font-semibold text-gray-900">{section.title}</h3>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-semibold text-gray-900">{section.title}</h3>
+                        {!isRequired && (
+                          <span className="text-xs text-gray-400">(Optional)</span>
+                        )}
+                      </div>
                       <p className="text-sm text-gray-500">{section.description}</p>
                     </div>
                   </div>
@@ -702,7 +918,7 @@ export default function DashboardPage() {
               <h3 className="text-lg font-bold text-gray-900">Ready to Submit!</h3>
             </div>
             <p className="text-gray-600 mb-4">
-              All sections are complete. Review your application before final submission.
+              All required sections are complete. Review your application before final submission.
             </p>
             <Button
               type="button"
@@ -720,7 +936,7 @@ export default function DashboardPage() {
             <div className="flex items-center gap-2">
               <AlertCircle className="w-5 h-5 text-yellow-600" />
               <p className="text-sm text-yellow-800">
-                You have {5 - Object.values(sectionProgress).filter(Boolean).length} section(s) remaining to complete your application.
+                You have {remainingCount} required section(s) remaining to complete your application.
               </p>
             </div>
           </div>

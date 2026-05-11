@@ -108,7 +108,6 @@ const ApplicantDetailsModal = ({ applicant, onClose }: { applicant: any; onClose
   };
 
   const handleDownload = () => {
-    // Implement PDF download if needed
     window.print();
   };
 
@@ -184,7 +183,6 @@ const ApplicantDetailsModal = ({ applicant, onClose }: { applicant: any; onClose
       <div className="flex-1 overflow-y-auto p-6">
         {activeTab === 'overview' && (
           <div className="space-y-6">
-            {/* Personal Information */}
             <div>
               <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
                 <User className="w-5 h-5 text-purple-600" />
@@ -230,7 +228,6 @@ const ApplicantDetailsModal = ({ applicant, onClose }: { applicant: any; onClose
               </div>
             </div>
 
-            {/* Programme Information */}
             <div>
               <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
                 <GraduationCap className="w-5 h-5 text-purple-600" />
@@ -239,7 +236,7 @@ const ApplicantDetailsModal = ({ applicant, onClose }: { applicant: any; onClose
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="p-3 bg-gray-50 rounded-lg">
                   <p className="text-xs text-gray-500">Selected Programme</p>
-                  <p className="font-medium text-gray-900">{details.programme || 'Not specified'}</p>
+                  <p className="font-medium text-gray-900">{details.programme || details.selected_programme || 'Not specified'}</p>
                 </div>
                 <div className="p-3 bg-gray-50 rounded-lg">
                   <p className="text-xs text-gray-500">Application Status</p>
@@ -265,7 +262,6 @@ const ApplicantDetailsModal = ({ applicant, onClose }: { applicant: any; onClose
               </div>
             </div>
 
-            {/* Next of Kin */}
             {details.next_of_kin && details.next_of_kin.length > 0 && (
               <div>
                 <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
@@ -307,7 +303,6 @@ const ApplicantDetailsModal = ({ applicant, onClose }: { applicant: any; onClose
 
         {activeTab === 'academic' && (
           <div className="space-y-6">
-            {/* MSCE Results */}
             <div>
               <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
                 <BookOpen className="w-5 h-5 text-purple-600" />
@@ -457,7 +452,6 @@ const ApplicantDetailsModal = ({ applicant, onClose }: { applicant: any; onClose
         </button>
         <button
           onClick={() => {
-            // You can add additional actions here like approving/rejecting
             onClose();
           }}
           className="flex-1 px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:from-purple-700 hover:to-indigo-700 transition-colors"
@@ -498,7 +492,10 @@ export default function CommitteePredictionsPage() {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
+      console.log('Dashboard response:', data);
       if (data.success) {
+        setPredictions(data.data);
+      } else if (data.data) {
         setPredictions(data.data);
       }
     } catch (err) {
@@ -520,16 +517,30 @@ export default function CommitteePredictionsPage() {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
+      console.log('Applicants response:', data);
       
-      if (priority !== 'all' && data.success) {
-        setApplicants(data.applicants || []);
-      } else if (data.success && data.data) {
-        setApplicants(data.data);
+      if (priority !== 'all') {
+        // Priority endpoint returns { success, priority_level, count, applicants }
+        if (data.success && data.applicants) {
+          setApplicants(data.applicants);
+        } else if (data.data && data.data.applicants) {
+          setApplicants(data.data.applicants);
+        } else {
+          setApplicants([]);
+        }
       } else {
-        setApplicants([]);
+        // All applicants endpoint returns { success, data, count }
+        if (data.success && data.data) {
+          setApplicants(data.data);
+        } else if (data.data && data.data.data) {
+          setApplicants(data.data.data);
+        } else {
+          setApplicants([]);
+        }
       }
     } catch (err) {
       console.error('Failed to fetch applicants:', err);
+      setApplicants([]);
     } finally {
       setLoadingApplicants(false);
     }
@@ -539,14 +550,20 @@ export default function CommitteePredictionsPage() {
     setBatchProcessing(true);
     try {
       const token = getToken();
+      // First get all submitted applicants
       const response = await fetch(`${API_BASE_URL}/applicant-submissions/`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
       
+      let applicantIds = [];
       if (data.success && data.data) {
-        const applicantIds = data.data.map((a: any) => a.id);
-        
+        applicantIds = data.data.map((a: any) => a.id);
+      } else if (data.data && data.data.data) {
+        applicantIds = data.data.data.map((a: any) => a.id);
+      }
+      
+      if (applicantIds.length > 0) {
         const batchResponse = await fetch(`${API_BASE_URL}/ml/batch-predict-admissions/`, {
           method: 'POST',
           headers: {
@@ -561,7 +578,11 @@ export default function CommitteePredictionsPage() {
           alert(`Batch prediction completed!\n\nSummary:\n- High Priority: ${batchData.summary.high_priority}\n- Medium Priority: ${batchData.summary.medium_priority}\n- Low Priority: ${batchData.summary.low_priority}\n- Total Processed: ${batchData.summary.successful}`);
           await fetchPredictions();
           await fetchApplicantsByPriority(selectedPriority);
+        } else {
+          alert('Batch prediction failed: ' + (batchData.error || 'Unknown error'));
         }
+      } else {
+        alert('No submitted applicants found to analyze');
       }
     } catch (err) {
       console.error('Batch prediction failed:', err);
@@ -569,11 +590,6 @@ export default function CommitteePredictionsPage() {
     } finally {
       setBatchProcessing(false);
     }
-  };
-
-  const viewApplicantDetails = (applicant: any) => {
-    setSelectedApplicant(applicant);
-    setShowDetailsModal(true);
   };
 
   const viewFullApplication = async (applicantId: number) => {
@@ -587,6 +603,8 @@ export default function CommitteePredictionsPage() {
       if (data.success) {
         setFullApplicationData(data.data);
         setShowFullApplicationModal(true);
+      } else {
+        alert('Failed to load application details');
       }
     } catch (err) {
       console.error('Failed to fetch full application:', err);
@@ -607,8 +625,8 @@ export default function CommitteePredictionsPage() {
 
   const filteredApplicants = applicants.filter(applicant => {
     if (!searchTerm) return true;
-    const name = applicant.name || applicant.applicant_name || '';
-    const programme = applicant.programme || '';
+    const name = applicant.name || applicant.applicant_name || applicant.first_name || '';
+    const programme = applicant.programme || applicant.selected_programme || '';
     return name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       programme.toLowerCase().includes(searchTerm.toLowerCase());
   });
@@ -825,12 +843,12 @@ export default function CommitteePredictionsPage() {
                     <tr key={applicant.id} className={`hover:bg-gray-50 transition-colors ${getPriorityColor(applicant.ml_priority || applicant.priority)}`}>
                       <td className="px-6 py-4">
                         <div>
-                          <p className="font-medium text-gray-900">{applicant.name || applicant.applicant_name}</p>
+                          <p className="font-medium text-gray-900">{applicant.name || applicant.applicant_name || `${applicant.first_name} ${applicant.last_name}`}</p>
                           <p className="text-xs text-gray-500">{applicant.email}</p>
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <p className="text-sm text-gray-700">{applicant.programme || 'Not specified'}</p>
+                        <p className="text-sm text-gray-700">{applicant.programme || applicant.selected_programme || 'Not specified'}</p>
                       </td>
                       <td className="px-6 py-4">
                         <PriorityBadge 
@@ -891,93 +909,7 @@ export default function CommitteePredictionsPage() {
         </div>
       </div>
 
-      {/* Brief Details Modal (First Modal) */}
-      <AnimatePresence>
-        {showDetailsModal && selectedApplicant && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-            onClick={() => setShowDetailsModal(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[85vh] overflow-hidden"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="bg-gradient-to-r from-purple-600 to-indigo-600 px-6 py-4">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <h2 className="text-xl font-semibold text-white">Applicant Details</h2>
-                    <p className="text-purple-200 text-sm">ML Analysis & Prediction Report</p>
-                  </div>
-                  <button onClick={() => setShowDetailsModal(false)} className="p-2 hover:bg-white/20 rounded-lg">
-                    <X className="w-5 h-5 text-white" />
-                  </button>
-                </div>
-              </div>
-              <div className="flex-1 overflow-y-auto p-6">
-                <div className="space-y-4">
-                  <div className="border-b border-gray-200 pb-4">
-                    <h3 className="text-lg font-semibold text-gray-900">{selectedApplicant.name || selectedApplicant.applicant_name}</h3>
-                    <p className="text-sm text-gray-500">{selectedApplicant.email}</p>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="p-3 bg-gray-50 rounded-lg">
-                      <p className="text-xs text-gray-500">Programme</p>
-                      <p className="font-medium text-gray-900">{selectedApplicant.programme || 'Not specified'}</p>
-                    </div>
-                    <div className="p-3 bg-gray-50 rounded-lg">
-                      <p className="text-xs text-gray-500">Submitted</p>
-                      <p className="font-medium text-gray-900">
-                        {selectedApplicant.submitted_at ? new Date(selectedApplicant.submitted_at).toLocaleDateString() : 'N/A'}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="p-4 bg-purple-50 rounded-xl border border-purple-200">
-                    <div className="flex items-center justify-between mb-3">
-                      <h4 className="font-semibold text-gray-800">AI Prediction Summary</h4>
-                      <PriorityBadge 
-                        priority={selectedApplicant.ml_priority || selectedApplicant.priority || 'Medium'} 
-                        probability={selectedApplicant.probability || selectedApplicant.ml_probability}
-                        confidence={selectedApplicant.confidence || selectedApplicant.ml_confidence}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-600">Admission Probability:</span>
-                        <span className="font-semibold">{(selectedApplicant.probability || selectedApplicant.ml_probability || 0.5) * 100}%</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-600">Confidence Level:</span>
-                        <span className="font-semibold">{(selectedApplicant.confidence || selectedApplicant.ml_confidence || 0.5) * 100}%</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={() => {
-                      setShowDetailsModal(false);
-                      viewFullApplication(selectedApplicant.id);
-                    }}
-                    className="w-full py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:from-purple-700 hover:to-indigo-700 transition-colors flex items-center justify-center gap-2"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                    View Full Application
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Full Application Details Modal (Second Modal) */}
+      {/* Full Application Details Modal */}
       <AnimatePresence>
         {showFullApplicationModal && fullApplicationData && (
           <motion.div
