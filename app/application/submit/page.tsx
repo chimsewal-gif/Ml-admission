@@ -11,7 +11,8 @@ import {
   Shield, TrendingUp, Sparkles, Star, Heart, ThumbsUp, FileDown,
   Eye, EyeOff, Scale, PenTool, FileCheck, ClipboardList, 
   Edit3, ShieldCheck, Fingerprint, BadgeCheck, Flag, Gavel,
-  ScrollText, PenSquare, CheckSquare, X, CreditCard, Bell, AlertTriangle
+  ScrollText, PenSquare, CheckSquare, X, CreditCard, Bell, AlertTriangle,
+  Loader2
 } from 'lucide-react';
 import Breadcrumb from '@/componets/Breadcrumb';
 import Image from 'next/image';
@@ -117,6 +118,8 @@ export default function FinalSubmitPage() {
   const [declarationText, setDeclarationText] = useState('');
   const [checkingSubmissionStatus, setCheckingSubmissionStatus] = useState(true);
   const [showWarningModal, setShowWarningModal] = useState(false);
+  const [notification, setNotification] = useState("");
+  const [notificationType, setNotificationType] = useState<"success" | "error" | "warning">("success");
 
   useEffect(() => {
     import('html2pdf.js').then((module) => {
@@ -156,12 +159,12 @@ export default function FinalSubmitPage() {
           headers: { Authorization: `Bearer ${token}` },
         });
         
-        const response = await statusAxios.get('/submission-status/');
-        if (response.data && response.data.submitted) {
+        const response = await statusAxios.get('/submit/status/');
+        if (response.data && response.data.data && response.data.data.is_submitted) {
           setAlreadySubmitted(true);
           setSubmitted(true);
-          setReferenceNumber(response.data.reference_number || 'Already Submitted');
-          setSubmissionData(response.data.submission);
+          setReferenceNumber(response.data.data.reference_number || 'Already Submitted');
+          setSubmissionData(response.data.data);
         }
       } catch (err) {
         console.warn('Could not check submission status:', err);
@@ -282,14 +285,15 @@ export default function FinalSubmitPage() {
   const handleFinalSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Show warning modal if already submitted
     if (alreadySubmitted) {
       setShowWarningModal(true);
       return;
     }
     
     if (!declarationChecked) {
-      alert('Please declare that the information provided is correct before submitting.');
+      setNotification("Please declare that the information provided is correct before submitting.");
+      setNotificationType("warning");
+      setTimeout(() => setNotification(""), 3000);
       return;
     }
     
@@ -306,7 +310,8 @@ export default function FinalSubmitPage() {
     const currentToken = getToken();
 
     if (!currentToken) {
-      alert('You must be logged in to submit.');
+      setNotification("You must be logged in to submit.");
+      setNotificationType("error");
       setLoading(false);
       router.push('/login');
       return;
@@ -317,7 +322,8 @@ export default function FinalSubmitPage() {
       const programmeId = firstChoice?.programme_id || data.personal?.programme_id;
 
       if (!programmeId) {
-        alert('Please select at least one programme before submitting.');
+        setNotification("Please select at least one programme before submitting.");
+        setNotificationType("warning");
         setLoading(false);
         return;
       }
@@ -346,7 +352,9 @@ export default function FinalSubmitPage() {
         setIsDuplicate(res.data.is_duplicate || false);
         setSubmissionData(res.data.data);
         setEmailStatus(res.data.email_sent ? 'sent' : 'failed');
-        alert('✅ Application submitted successfully! Your reference number is: ' + (submissionRef || generateReferenceNumber()));
+        setNotification(`✅ Application submitted successfully! Reference: ${submissionRef || generateReferenceNumber()}`);
+        setNotificationType("success");
+        setTimeout(() => setNotification(""), 5000);
       } else {
         throw new Error(res.data.message || 'Submission failed');
       }
@@ -366,7 +374,9 @@ export default function FinalSubmitPage() {
       } else {
         const errorMessage = err.response?.data?.message || 'An error occurred while submitting your application.';
         setError(errorMessage);
-        alert('❌ Error: ' + errorMessage);
+        setNotification("❌ Error: " + errorMessage);
+        setNotificationType("error");
+        setTimeout(() => setNotification(""), 5000);
       }
     } finally {
       setLoading(false);
@@ -380,59 +390,9 @@ export default function FinalSubmitPage() {
     return `${prefix}-${date}-${random}`;
   };
 
-  const handlePrintApplication = () => {
-    window.print();
-  };
-
-  const handleDownloadPDF = async () => {
-    if (!pdfContentRef.current || !html2pdf) return;
-    
-    setDownloading(true);
-    
-    const element = pdfContentRef.current;
-    const opt = {
-      margin: [0.5, 0.5, 0.5, 0.5],
-      filename: `Mzuni_Application_${referenceNumber || 'Summary'}_${new Date().toISOString().split('T')[0]}.pdf`,
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true, logging: false },
-      jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
-    };
-    
-    try {
-      await html2pdf().set(opt).from(element).save();
-    } catch (error) {
-      console.error('PDF generation error:', error);
-    } finally {
-      setDownloading(false);
-    }
-  };
-
-  const handleResendEmail = async () => {
-    if (!submissionData) return;
-    
-    setEmailStatus('sending');
-    try {
-      const currentToken = getToken();
-      if (!currentToken) throw new Error('No token');
-      
-      const resendAxios = axios.create({
-        baseURL: API_BASE_URL,
-        headers: { Authorization: `Bearer ${currentToken}` },
-      });
-      
-      await resendAxios.post('/resend-confirmation/', { submission_id: submissionData.id });
-      setEmailStatus('sent');
-      alert('Confirmation email resent successfully!');
-    } catch (error) {
-      console.error('Failed to resend email:', error);
-      setEmailStatus('failed');
-      alert('Failed to resend confirmation email. Please try again later.');
-    }
-  };
-
   const handleGoToPayments = () => {
     setShowWarningModal(false);
-    router.push('/payments');
+    router.push('/application/application-fees');
   };
 
   const calculateCompletion = () => {
@@ -472,516 +432,121 @@ export default function FinalSubmitPage() {
     );
   }
 
-  const PDFContent = () => (
-    <div ref={pdfContentRef} className="hidden">
-      <div className="p-8 max-w-4xl mx-auto bg-white" style={{ fontFamily: 'Arial, sans-serif' }}>
-        <div className="text-center mb-8 pb-6 border-b-2 border-blue-600">
-          <div className="flex justify-center mb-4">
-            <div className="w-20 h-20 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-2xl flex items-center justify-center shadow-lg">
-              <Image
-                src="/logo.jpeg"
-                alt="Mzuzu University Logo"
-                width={56}
-                height={56}
-                className="rounded-xl"
-                onError={(e) => {
-                  const target = e.target as HTMLImageElement;
-                  target.style.display = 'none';
-                  const parent = target.parentElement;
-                  if (parent) {
-                    const fallback = document.createElement('div');
-                    fallback.className = 'text-white text-2xl';
-                    fallback.innerHTML = '🎓';
-                    parent.appendChild(fallback);
-                  }
-                }}
-              />
-            </div>
-          </div>
-          <h1 className="text-2xl font-bold text-gray-800">Mzuzu University</h1>
-          <p className="text-gray-600">e-Admission Portal</p>
-          <h2 className="text-xl font-semibold text-gray-700 mt-4">Application Declaration & Summary</h2>
-        </div>
-
-        <div className="bg-blue-50 p-6 rounded-lg mb-6 border border-blue-200">
-          <div className="flex items-start gap-3">
-            <Gavel className="w-6 h-6 text-blue-600 mt-0.5" />
-            <div>
-              <p className="text-lg font-semibold text-blue-800 mb-2">DECLARATION</p>
-              <p className="text-gray-700 italic">
-                "I, <span className="font-semibold not-italic">{declarationText || '_____________________'}</span>, 
-                hereby declare that all the information provided in this application is true, accurate, and complete 
-                to the best of my knowledge. I understand that any false or misleading information may result in 
-                the rejection of my application or cancellation of admission."
-              </p>
-              <p className="text-sm text-gray-500 mt-3">
-                Declared on: {new Date().toLocaleDateString()} at {new Date().toLocaleTimeString()}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="mb-6">
-          <h3 className="text-lg font-semibold text-blue-700 mb-3 pb-2 border-b border-gray-200">Application Reference</h3>
-          <div className="bg-gray-50 p-4 rounded-lg">
-            <p className="text-2xl font-bold text-blue-700 font-mono">{referenceNumber || submissionData?.reference_number || 'Pending'}</p>
-          </div>
-        </div>
-
-        <div className="mb-6">
-          <h3 className="text-lg font-semibold text-blue-700 mb-3 pb-2 border-b border-gray-200">Programme Choices</h3>
-          {data.programmeChoices.length > 0 ? (
-            <div className="space-y-2">
-              {data.programmeChoices.map((choice) => (
-                <div key={choice.choice_number} className="flex items-start gap-2 text-sm">
-                  <span className="font-bold text-blue-600 min-w-[70px]">{choice.choice_number}{getRankSuffix(choice.choice_number)} Choice:</span>
-                  <span className="text-gray-700">{choice.programme_name}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-gray-500">No programme selected</p>
-          )}
-        </div>
-
-        <div className="mb-6">
-          <h3 className="text-lg font-semibold text-blue-700 mb-3 pb-2 border-b border-gray-200">Personal Information</h3>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="font-semibold text-gray-600">Full Name:</div>
-            <div>{data.personal?.firstname || ''} {data.personal?.lastname || ''}</div>
-            <div className="font-semibold text-gray-600">Email:</div>
-            <div>{data.personal?.email || 'Not provided'}</div>
-            <div className="font-semibold text-gray-600">Phone:</div>
-            <div>{data.personal?.phone || 'Not provided'}</div>
-            <div className="font-semibold text-gray-600">National ID:</div>
-            <div>{data.personal?.national_id || 'Not provided'}</div>
-          </div>
-        </div>
-
-        <div className="text-center mt-8 pt-6 border-t border-gray-200">
-          <p className="text-sm text-gray-500">This is an official declaration of your application to Mzuzu University.</p>
-          <p className="text-sm text-gray-500">Generated on {new Date().toLocaleString()}</p>
-        </div>
-      </div>
-    </div>
-  );
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50/20 py-8">
-      <div className="max-w-5xl mx-auto px-4">
+    <div className="min-h-screen bg-gray-50 py-8">
+      <div className="max-w-4xl mx-auto px-4">
         <Breadcrumb />
 
-        {/* Warning Modal - Popup when application already submitted */}
-        <AnimatePresence>
-          {showWarningModal && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
-              onClick={() => setShowWarningModal(false)}
-            >
-              <motion.div
-                initial={{ scale: 0.8, opacity: 0, y: 50 }}
-                animate={{ scale: 1, opacity: 1, y: 0 }}
-                exit={{ scale: 0.8, opacity: 0, y: 50 }}
-                transition={{ type: "spring", damping: 20, stiffness: 300 }}
-                className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {/* Warning Header */}
-                <div className="bg-gradient-to-r from-amber-500 to-orange-500 px-6 py-4 text-center">
-                  <motion.div
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    transition={{ type: "spring", delay: 0.1 }}
-                    className="bg-white rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-2"
-                  >
-                    <AlertTriangle className="w-8 h-8 text-amber-500" />
-                  </motion.div>
-                  <h2 className="text-xl font-bold text-white">Cannot Submit Twice!</h2>
-                </div>
-
-                {/* Warning Body */}
-                <div className="p-6 text-center">
-                  <p className="text-gray-700 mb-2">
-                    Your application has already been submitted successfully.
-                  </p>
-                  {referenceNumber && (
-                    <div className="mt-3 p-3 bg-gray-100 rounded-lg">
-                      <p className="text-xs text-gray-500">Reference Number</p>
-                      <p className="text-lg font-bold text-amber-700 font-mono">{referenceNumber}</p>
-                    </div>
-                  )}
-                  <div className="mt-4 p-3 bg-amber-50 rounded-lg border border-amber-200">
-                    <p className="text-sm text-amber-800">
-                      ⚠️ You cannot submit the same application twice. Please proceed to the payments page to complete your application process.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Warning Footer */}
-                <div className="bg-gray-50 px-6 py-4 flex flex-col gap-3">
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={handleGoToPayments}
-                    className="w-full py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl font-semibold flex items-center justify-center gap-2 shadow-md hover:shadow-lg transition-all"
-                  >
-                    <CreditCard className="w-5 h-5" />
-                    Continue to Payments
-                    <ChevronRight className="w-4 h-4" />
-                  </motion.button>
-                  <button
-                    onClick={() => setShowWarningModal(false)}
-                    className="w-full py-2 text-gray-500 hover:text-gray-700 text-sm transition-colors"
-                  >
-                    Close
-                  </button>
-                </div>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="text-center mb-8"
-        >
-          <div className="inline-flex items-center gap-2 bg-blue-100 text-blue-700 px-4 py-2 rounded-full mb-4">
-            <Scale className="w-4 h-4" />
-            <span className="text-sm font-medium">Legal Declaration Required</span>
-          </div>
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">Declaration of Accuracy</h1>
-          <p className="text-gray-600">Review your application and make a legal declaration before submission</p>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, scaleX: 0 }}
-          animate={{ opacity: 1, scaleX: 1 }}
-          transition={{ duration: 0.5 }}
-          className="mt-6 mb-8"
-        >
-          <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-sm font-medium text-gray-700">Application Completion</span>
-              <span className={`text-sm font-bold ${
-                completionPercentage === 100 ? 'text-green-600' : 
-                completionPercentage >= 70 ? 'text-blue-600' : 
-                completionPercentage >= 40 ? 'text-yellow-600' : 'text-gray-500'
-              }`}>
-                {completionPercentage}% Complete
-              </span>
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-              <motion.div
-                initial={{ width: 0 }}
-                animate={{ width: `${completionPercentage}%` }}
-                transition={{ duration: 0.8 }}
-                className={`h-full rounded-full ${
-                  completionPercentage === 100 ? 'bg-gradient-to-r from-green-500 to-emerald-500' :
-                  completionPercentage >= 70 ? 'bg-gradient-to-r from-blue-500 to-indigo-500' :
-                  'bg-gradient-to-r from-yellow-500 to-orange-500'
-                }`}
-              />
-            </div>
-          </div>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-8"
-        >
-          <div className="flex justify-end">
-            <button
-              onClick={() => setShowPreviewModal(true)}
-              className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-semibold flex items-center gap-2 shadow-lg hover:shadow-xl transition-all"
-            >
-              <Eye className="w-4 h-4" />
-              Preview Application
-            </button>
-          </div>
-          <p className="text-xs text-gray-500 text-right mt-2">
-            Review all information carefully before making your declaration
-          </p>
-        </motion.div>
-
-        {error && (
+        {/* Notification */}
+        {notification && (
           <motion.div
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="mt-6 p-4 bg-red-50 border border-red-200 rounded-xl"
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className={`mb-6 p-4 rounded-lg flex items-center gap-3 ${
+              notificationType === "success" 
+                ? "bg-green-50 border border-green-200 text-green-800" 
+                : notificationType === "warning"
+                ? "bg-yellow-50 border border-yellow-200 text-yellow-800"
+                : "bg-red-50 border border-red-200 text-red-800"
+            }`}
           >
-            <div className="flex items-center">
-              <AlertCircle className="w-5 h-5 text-red-500 mr-3" />
-              <p className="text-red-700">{error}</p>
-            </div>
+            {notificationType === "success" ? (
+              <CheckCircle className="w-5 h-5 flex-shrink-0" />
+            ) : notificationType === "warning" ? (
+              <AlertCircle className="w-5 h-5 flex-shrink-0" />
+            ) : (
+              <X className="w-5 h-5 flex-shrink-0" />
+            )}
+            <p className="text-sm">{notification}</p>
           </motion.div>
         )}
 
-        {/* Preview Modal */}
-        <AnimatePresence>
-          {showPreviewModal && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
-              onClick={() => setShowPreviewModal(false)}
-            >
-              <motion.div
-                initial={{ scale: 0.9, opacity: 0, y: 20 }}
-                animate={{ scale: 1, opacity: 1, y: 0 }}
-                exit={{ scale: 0.9, opacity: 0, y: 20 }}
-                transition={{ type: "spring", damping: 25, stiffness: 300 }}
-                className="relative w-full max-w-4xl max-h-[90vh] bg-white rounded-2xl shadow-2xl overflow-hidden"
-                onClick={(e) => e.stopPropagation()}
+        {/* Main Card */}
+        <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
+          {/* Header */}
+          <div className="border-b border-gray-200 p-6">
+            <div className="flex items-center justify-between flex-wrap gap-3 mb-2">
+              <div className="flex items-center gap-3">
+                <Scale className="w-6 h-6 text-gray-700" />
+                <h2 className="text-xl font-semibold text-gray-800">DECLARATION OF ACCURACY</h2>
+              </div>
+              <button
+                onClick={() => setShowPreviewModal(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-md"
               >
-                <div className="sticky top-0 z-10 bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="bg-white/20 rounded-full p-2">
-                      <Eye className="w-5 h-5 text-white" />
-                    </div>
-                    <h2 className="text-xl font-bold text-white">Application Preview</h2>
-                  </div>
-                  <button
-                    onClick={() => setShowPreviewModal(false)}
-                    className="text-white/80 hover:text-white transition-colors p-1 rounded-full hover:bg-white/20"
-                  >
-                    <X className="w-6 h-6" />
-                  </button>
+                <Eye className="w-4 h-4" />
+                <span className="text-sm font-medium">Preview Application</span>
+              </button>
+            </div>
+            <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-lg mt-3">
+              <p className="text-sm text-gray-700">
+                Legal Declaration Required - Please review all information carefully before submitting
+              </p>
+            </div>
+          </div>
+
+          <div className="p-6">
+            {/* Progress Bar */}
+            <div className="mb-6 bg-gray-50 rounded-lg p-4 border border-gray-200">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-sm font-medium text-gray-700">Application Completion</span>
+                <span className={`text-sm font-bold ${
+                  completionPercentage === 100 ? 'text-green-600' : 
+                  completionPercentage >= 70 ? 'text-blue-600' : 
+                  completionPercentage >= 40 ? 'text-yellow-600' : 'text-gray-500'
+                }`}>
+                  {completionPercentage}% Complete
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                <div 
+                  className={`h-full rounded-full transition-all duration-500 ${
+                    completionPercentage === 100 ? 'bg-green-600' :
+                    completionPercentage >= 70 ? 'bg-blue-600' :
+                    'bg-yellow-500'
+                  }`}
+                  style={{ width: `${completionPercentage}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Declaration Section - Simple */}
+            <div className="mb-6 bg-gray-50 rounded-xl p-6 border border-gray-200">
+              <div className="flex items-start gap-4">
+                <div className="bg-green-100 rounded-full p-3">
+                  <Gavel className="w-6 h-6 text-green-600" />
                 </div>
-
-                <div className="overflow-y-auto p-6 space-y-6 max-h-[calc(90vh-80px)]">
-                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl shadow-lg border border-blue-200 overflow-hidden">
-                    <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-3">
-                      <h3 className="text-white font-semibold flex items-center">
-                        <Gavel className="w-5 h-5 mr-2" />
-                        Legal Declaration
-                      </h3>
-                    </div>
-                    <div className="p-6">
-                      <div className="flex items-start gap-4">
-                        <div className="bg-blue-100 rounded-full p-3">
-                          <Scale className="w-6 h-6 text-blue-600" />
-                        </div>
-                        <div>
-                          <p className="text-gray-700 leading-relaxed">
-                            <span className="font-semibold">I, {declarationText || '[Applicant Name]'},</span> hereby declare 
-                            that all the information provided in this application form, including personal details, 
-                            academic records, programme choices, and next of kin information, is true, accurate, and 
-                            complete to the best of my knowledge.
-                          </p>
-                          <p className="text-gray-700 leading-relaxed mt-3">
-                            I understand that providing false or misleading information may result in the immediate 
-                            rejection of my application, cancellation of admission, or other disciplinary actions as 
-                            per Mzuzu University regulations.
-                          </p>
-                          <div className="mt-4 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
-                            <p className="text-sm text-yellow-800 flex items-start gap-2">
-                              <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                              <span>This declaration carries legal weight and is equivalent to a sworn affidavit.</span>
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden">
-                    <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-3">
-                      <h3 className="text-white font-semibold flex items-center">
-                        <Award className="w-5 h-5 mr-2" />
-                        Programme Choices (6 Preferences)
-                      </h3>
-                    </div>
-                    <div className="p-6">
-                      {data.programmeChoices.length >= 6 ? (
-                        <div className="space-y-3">
-                          {data.programmeChoices.map((choice) => (
-                            <div key={choice.choice_number} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
-                              <span className="font-bold text-blue-600 min-w-[80px]">{choice.choice_number}{getRankSuffix(choice.choice_number)}:</span>
-                              <div>
-                                <p className="font-medium text-gray-800">{choice.programme_name}</p>
-                                <div className="flex flex-wrap gap-3 mt-1 text-xs text-gray-500">
-                                  <span>{choice.department}</span>
-                                  <span>{choice.duration}</span>
-                                  <span>{choice.category}</span>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="text-center py-8">
-                          <Award className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                          <p className="text-gray-500">Please select 6 programmes in order of preference</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden">
-                    <div className="bg-gradient-to-r from-green-600 to-green-700 px-6 py-3">
-                      <h3 className="text-white font-semibold flex items-center">
-                        <User className="w-5 h-5 mr-2" />
-                        Personal Information
-                      </h3>
-                    </div>
-                    <div className="p-6">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <p className="text-sm text-gray-500">Full Name</p>
-                          <p className="font-medium text-gray-900">{data.personal?.firstname} {data.personal?.lastname}</p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-gray-500">Email Address</p>
-                          <p className="font-medium text-gray-900">{data.personal?.email || 'Not provided'}</p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-gray-500">Phone Number</p>
-                          <p className="font-medium text-gray-900">{data.personal?.phone || 'Not provided'}</p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-gray-500">National ID</p>
-                          <p className="font-medium text-gray-900">{data.personal?.national_id || 'Not provided'}</p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-gray-500">Date of Birth</p>
-                          <p className="font-medium text-gray-900">{data.personal?.dob || 'Not provided'}</p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-gray-500">Nationality</p>
-                          <p className="font-medium text-gray-900">{data.personal?.nationality || 'Not specified'}</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden">
-                    <div className="bg-gradient-to-r from-purple-600 to-purple-700 px-6 py-3">
-                      <h3 className="text-white font-semibold flex items-center">
-                        <Heart className="w-5 h-5 mr-2" />
-                        Next of Kin
-                      </h3>
-                    </div>
-                    <div className="p-6">
-                      {data.nextOfKin.length > 0 ? (
-                        <div className="space-y-4">
-                          {data.nextOfKin.map((kin, index) => (
-                            <div key={kin.id} className="border border-gray-200 rounded-xl p-4">
-                              <div className="flex items-center justify-between mb-3">
-                                <span className="font-semibold text-gray-900">Contact {index + 1}</span>
-                                <span className="bg-purple-100 text-purple-700 text-xs px-2 py-1 rounded-full">{kin.relationship}</span>
-                              </div>
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                <div>
-                                  <p className="text-xs text-gray-500">Name</p>
-                                  <p className="text-sm text-gray-900">{kin.title} {kin.first_name} {kin.last_name}</p>
-                                </div>
-                                <div>
-                                  <p className="text-xs text-gray-500">Phone</p>
-                                  <p className="text-sm text-gray-900">{kin.mobile1}</p>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="text-center py-8">
-                          <Heart className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                          <p className="text-gray-500">No next of kin added</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden">
-                    <div className="bg-gradient-to-r from-orange-600 to-orange-700 px-6 py-3">
-                      <h3 className="text-white font-semibold flex items-center">
-                        <BookOpen className="w-5 h-5 mr-2" />
-                        Academic Records
-                      </h3>
-                    </div>
-                    <div className="p-6">
-                      {data.subjects.length > 0 ? (
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-sm">
-                            <thead className="bg-gray-50">
-                              <tr>
-                                <th className="px-4 py-2 text-left text-gray-600">Subject</th>
-                                <th className="px-4 py-2 text-left text-gray-600">Grade</th>
-                                <th className="px-4 py-2 text-left text-gray-600">Year</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {data.subjects.map((subj, idx) => (
-                                <tr key={idx} className="border-t border-gray-100">
-                                  <td className="px-4 py-2 font-medium text-gray-900">{subj.subject}</td>
-                                  <td className="px-4 py-2">
-                                    <span className="bg-orange-100 text-orange-700 px-2 py-1 rounded-full text-xs font-bold">{subj.grade}</span>
-                                  </td>
-                                  <td className="px-4 py-2 text-gray-600">{subj.year}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      ) : (
-                        <div className="text-center py-8">
-                          <BookOpen className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                          <p className="text-gray-500">No academic records added</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                <div>
+                  <h3 className="font-semibold text-gray-800 mb-2">Legal Declaration</h3>
+                  <p className="text-gray-700 leading-relaxed">
+                    I, <span className="font-semibold">{declarationText || '[Applicant Name]'}</span>, hereby declare 
+                    that all the information provided in this application is true, accurate, and complete.
+                  </p>
                 </div>
+              </div>
+            </div>
 
-                <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-6 py-4 flex justify-end">
-                  <button
-                    onClick={() => setShowPreviewModal(false)}
-                    className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
-                  >
-                    Close Preview
-                  </button>
-                </div>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Declaration Checkbox and Submit Section */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5 }}
-          className="mt-8"
-        >
-          <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-8">
-            <div className="mb-6 p-4 bg-gray-50 rounded-xl border border-gray-200">
+            {/* Declaration Checkbox */}
+            <div className="mb-6 p-4 bg-green-50 rounded-xl border border-green-200">
               <label className="flex items-start gap-3 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={declarationChecked}
                   onChange={(e) => setDeclarationChecked(e.target.checked)}
                   disabled={alreadySubmitted}
-                  className="mt-1 w-5 h-5 text-blue-600 rounded border-gray-300 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="mt-1 w-5 h-5 text-green-600 rounded border-gray-300 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 />
                 <div className="flex-1">
                   <span className="font-semibold text-gray-900">
-                    I, {declarationText || '_____________________'}, hereby declare that the information provided is correct
+                    I confirm that the information provided is correct
                   </span>
-                  <p className="text-sm text-gray-500 mt-1">
-                    I confirm that all details in this application are accurate and complete. I understand that 
-                    providing false information may lead to rejection or cancellation of admission.
-                  </p>
                 </div>
               </label>
             </div>
 
-            <div className="text-center">
+            {/* Submit Section */}
+            <div className="pt-4 border-t border-gray-200">
               {alreadySubmitted ? (
                 <div className="text-center">
                   <div className="inline-flex items-center gap-2 bg-amber-50 px-4 py-2 rounded-full mb-3">
@@ -989,33 +554,28 @@ export default function FinalSubmitPage() {
                     <span className="text-sm text-amber-700 font-medium">Application Already Submitted</span>
                   </div>
                   <p className="text-sm text-gray-500 mb-4">
-                    You cannot submit the same application twice. Please proceed to the payments page.
+                    Please proceed to the payments page.
                   </p>
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
+                  <button
                     onClick={handleGoToPayments}
-                    className="px-8 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl font-semibold flex items-center justify-center mx-auto gap-2 shadow-lg hover:shadow-xl transition-all"
+                    className="px-8 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold flex items-center justify-center mx-auto gap-2 shadow-md hover:shadow-lg transition-all"
                   >
                     <CreditCard className="w-5 h-5" />
                     Continue to Payments
                     <ChevronRight className="w-4 h-4" />
-                  </motion.button>
+                  </button>
                 </div>
               ) : canSubmit ? (
-                <motion.div
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
+                <div className="flex justify-end">
                   <button
                     onClick={handleFinalSubmit}
                     disabled={loading}
-                    className="px-10 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-semibold flex items-center justify-center mx-auto gap-2 shadow-lg hover:shadow-xl transition-all disabled:opacity-50"
+                    className="px-8 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold flex items-center gap-2 shadow-md hover:shadow-lg transition-all disabled:opacity-50"
                   >
                     {loading ? (
                       <>
-                        <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
-                        Submitting Declaration...
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        Submitting...
                       </>
                     ) : (
                       <>
@@ -1025,48 +585,297 @@ export default function FinalSubmitPage() {
                       </>
                     )}
                   </button>
-                </motion.div>
+                </div>
               ) : (
                 <div className="text-center">
                   <div className="inline-flex items-center gap-2 bg-yellow-50 px-4 py-2 rounded-full mb-3">
                     <AlertCircle className="w-4 h-4 text-yellow-600" />
-                    <span className="text-sm text-yellow-700">Cannot submit yet</span>
+                    <span className="text-sm text-yellow-700 font-medium">Cannot submit yet</span>
                   </div>
-                  <p className="text-sm text-gray-500">
-                    Please complete all required sections and check the declaration box:
-                  </p>
-                  <ul className="mt-2 text-sm text-gray-500 space-y-1">
-                    {data.programmeChoices.length < 6 && (
-                      <li className="flex items-center justify-center gap-2">
-                        <div className="w-1.5 h-1.5 bg-red-500 rounded-full"></div>
-                        Programme choices (6 required)
-                      </li>
-                    )}
-                    {data.subjects.length === 0 && (
-                      <li className="flex items-center justify-center gap-2">
-                        <div className="w-1.5 h-1.5 bg-red-500 rounded-full"></div>
-                        Academic records
-                      </li>
-                    )}
-                    {data.nextOfKin.length === 0 && (
-                      <li className="flex items-center justify-center gap-2">
-                        <div className="w-1.5 h-1.5 bg-red-500 rounded-full"></div>
-                        Next of kin
-                      </li>
-                    )}
-                    {!declarationChecked && (
-                      <li className="flex items-center justify-center gap-2">
-                        <div className="w-1.5 h-1.5 bg-red-500 rounded-full"></div>
-                        Declaration confirmation
-                      </li>
-                    )}
-                  </ul>
+                  <p className="text-sm text-gray-500">Please complete all required sections</p>
                 </div>
               )}
             </div>
           </div>
-        </motion.div>
+        </div>
       </div>
+
+      {/* Preview Modal - Clean headers, no background colors */}
+      <AnimatePresence>
+        {showPreviewModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            onClick={() => setShowPreviewModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              className="relative w-full max-w-4xl max-h-[90vh] bg-white rounded-2xl shadow-2xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Modal Header - No background color */}
+              <div className="sticky top-0 z-10 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Eye className="w-5 h-5 text-gray-600" />
+                  <h2 className="text-xl font-semibold text-gray-800">Application Preview</h2>
+                </div>
+                <button
+                  onClick={() => setShowPreviewModal(false)}
+                  className="p-1 rounded-full hover:bg-gray-100 transition-colors"
+                >
+                  <X className="w-6 h-6 text-gray-400" />
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="overflow-y-auto p-6 space-y-6 max-h-[calc(90vh-80px)]">
+                {/* Declaration Section - Clean */}
+                <div className="border border-gray-200 rounded-xl overflow-hidden">
+                  <div className="border-b border-gray-100 px-6 py-3 bg-gray-50">
+                    <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+                      <Scale className="w-5 h-5 text-gray-600" />
+                      Legal Declaration
+                    </h3>
+                  </div>
+                  <div className="p-6">
+                    <p className="text-gray-700 leading-relaxed">
+                      I, <span className="font-semibold">{declarationText || '[Applicant Name]'}</span>, hereby declare 
+                      that all the information provided in this application is true, accurate, and complete.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Programme Choices Section */}
+                <div className="border border-gray-200 rounded-xl overflow-hidden">
+                  <div className="border-b border-gray-100 px-6 py-3 bg-gray-50">
+                    <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+                      <Award className="w-5 h-5 text-gray-600" />
+                      Programme Choices (6 Preferences)
+                    </h3>
+                  </div>
+                  <div className="p-6">
+                    {data.programmeChoices.length >= 6 ? (
+                      <div className="space-y-3">
+                        {data.programmeChoices.map((choice) => (
+                          <div key={choice.choice_number} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
+                            <span className="font-bold text-green-600 min-w-[80px]">{choice.choice_number}{getRankSuffix(choice.choice_number)}:</span>
+                            <div>
+                              <p className="font-medium text-gray-800">{choice.programme_name}</p>
+                              <div className="flex flex-wrap gap-3 mt-1 text-xs text-gray-500">
+                                <span>{choice.department}</span>
+                                <span>{choice.duration}</span>
+                                <span>{choice.category}</span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8">
+                        <Award className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                        <p className="text-gray-500">Please select 6 programmes in order of preference</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Personal Information Section */}
+                <div className="border border-gray-200 rounded-xl overflow-hidden">
+                  <div className="border-b border-gray-100 px-6 py-3 bg-gray-50">
+                    <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+                      <User className="w-5 h-5 text-gray-600" />
+                      Personal Information
+                    </h3>
+                  </div>
+                  <div className="p-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-sm text-gray-500">Full Name</p>
+                        <p className="font-medium text-gray-900">{data.personal?.firstname} {data.personal?.lastname}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500">Email Address</p>
+                        <p className="font-medium text-gray-900">{data.personal?.email || 'Not provided'}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500">Phone Number</p>
+                        <p className="font-medium text-gray-900">{data.personal?.phone || 'Not provided'}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500">National ID</p>
+                        <p className="font-medium text-gray-900">{data.personal?.national_id || 'Not provided'}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Next of Kin Section */}
+                <div className="border border-gray-200 rounded-xl overflow-hidden">
+                  <div className="border-b border-gray-100 px-6 py-3 bg-gray-50">
+                    <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+                      <Heart className="w-5 h-5 text-gray-600" />
+                      Next of Kin
+                    </h3>
+                  </div>
+                  <div className="p-6">
+                    {data.nextOfKin.length > 0 ? (
+                      <div className="space-y-4">
+                        {data.nextOfKin.map((kin, index) => (
+                          <div key={kin.id} className="border border-gray-200 rounded-xl p-4">
+                            <div className="flex items-center justify-between mb-3">
+                              <span className="font-semibold text-gray-900">Contact {index + 1}</span>
+                              <span className="bg-gray-100 text-gray-700 text-xs px-2 py-1 rounded-full">{kin.relationship}</span>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              <div>
+                                <p className="text-xs text-gray-500">Name</p>
+                                <p className="text-sm text-gray-900">{kin.title} {kin.first_name} {kin.last_name}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-gray-500">Phone</p>
+                                <p className="text-sm text-gray-900">{kin.mobile1}</p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8">
+                        <Heart className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                        <p className="text-gray-500">No next of kin added</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Academic Records Section */}
+                <div className="border border-gray-200 rounded-xl overflow-hidden">
+                  <div className="border-b border-gray-100 px-6 py-3 bg-gray-50">
+                    <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+                      <BookOpen className="w-5 h-5 text-gray-600" />
+                      Academic Records
+                    </h3>
+                  </div>
+                  <div className="p-6">
+                    {data.subjects.length > 0 ? (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-4 py-2 text-left text-gray-600">Subject</th>
+                              <th className="px-4 py-2 text-left text-gray-600">Grade</th>
+                              <th className="px-4 py-2 text-left text-gray-600">Year</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {data.subjects.map((subj, idx) => (
+                              <tr key={idx} className="border-t border-gray-100">
+                                <td className="px-4 py-2 font-medium text-gray-900">{subj.subject}</td>
+                                <td className="px-4 py-2">
+                                  <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded-full text-xs font-bold">{subj.grade}</span>
+                                </td>
+                                <td className="px-4 py-2 text-gray-600">{subj.year}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="text-center py-8">
+                        <BookOpen className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                        <p className="text-gray-500">No academic records added</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-6 py-4 flex justify-end">
+                <button
+                  onClick={() => setShowPreviewModal(false)}
+                  className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                >
+                  Close Preview
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Warning Modal - Already Submitted - Clean */}
+      <AnimatePresence>
+        {showWarningModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+            onClick={() => setShowWarningModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.8, opacity: 0, y: 50 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.8, opacity: 0, y: 50 }}
+              transition={{ type: "spring", damping: 20, stiffness: 300 }}
+              className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Warning Header - Clean */}
+              <div className="border-b border-gray-200 px-6 py-4">
+                <div className="flex items-center gap-3">
+                  <div className="bg-amber-100 rounded-full p-2">
+                    <AlertTriangle className="w-5 h-5 text-amber-600" />
+                  </div>
+                  <h2 className="text-lg font-semibold text-gray-800">Application Already Submitted</h2>
+                </div>
+              </div>
+
+              {/* Warning Body */}
+              <div className="p-6 text-center">
+                <p className="text-gray-700 mb-2">
+                  Your application has already been submitted successfully.
+                </p>
+                {referenceNumber && (
+                  <div className="mt-3 p-3 bg-gray-100 rounded-lg">
+                    <p className="text-xs text-gray-500">Reference Number</p>
+                    <p className="text-lg font-bold text-amber-700 font-mono">{referenceNumber}</p>
+                  </div>
+                )}
+                <div className="mt-4 p-3 bg-amber-50 rounded-lg border border-amber-200">
+                  <p className="text-sm text-amber-800">
+                    Please proceed to the payments page to complete your application process.
+                  </p>
+                </div>
+              </div>
+
+              {/* Warning Footer */}
+              <div className="bg-gray-50 px-6 py-4 flex flex-col gap-3">
+                <button
+                  onClick={handleGoToPayments}
+                  className="w-full py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-semibold flex items-center justify-center gap-2 shadow-md hover:shadow-lg transition-all"
+                >
+                  <CreditCard className="w-5 h-5" />
+                  Continue to Payments
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setShowWarningModal(false)}
+                  className="w-full py-2 text-gray-500 hover:text-gray-700 text-sm transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

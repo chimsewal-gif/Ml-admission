@@ -2,7 +2,7 @@
 
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import { useTheme } from 'next-themes';
@@ -18,6 +18,8 @@ import {
   X,
   Monitor,
   Eye,
+  Home,
+  LayoutDashboard
 } from 'lucide-react';
 import Button from '@/componets/Button';
 
@@ -52,6 +54,14 @@ const Header2 = () => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loadingNotifications, setLoadingNotifications] = useState(false);
+  
+  // Refs for hover menu
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const notificationRef = useRef<HTMLDivElement>(null);
+  const notificationButtonRef = useRef<HTMLButtonElement>(null);
+  const themeRef = useRef<HTMLDivElement>(null);
+  const themeButtonRef = useRef<HTMLButtonElement>(null);
   
   const router = useRouter();
   const pathname = usePathname();
@@ -192,6 +202,50 @@ const Header2 = () => {
       default:
         return '📌';
     }
+  };
+
+  // Hover menu handlers
+  const handleMenuMouseEnter = () => {
+    setShowMenu(true);
+  };
+
+  const handleMenuMouseLeave = () => {
+    setShowMenu(false);
+  };
+
+  const handleNotificationMouseEnter = () => {
+    setShowNotifications(true);
+  };
+
+  const handleNotificationMouseLeave = () => {
+    setShowNotifications(false);
+  };
+
+  const handleThemeMouseEnter = () => {
+    setShowThemeMenu(true);
+  };
+
+  const handleThemeMouseLeave = () => {
+    setShowThemeMenu(false);
+  };
+
+  // Handle notification click - Navigate to Notifications page
+  const handleNotificationClick = (notification: Notification) => {
+    // Mark as read if not read
+    if (!notification.is_read) {
+      markAsRead(notification.id);
+    }
+    
+    // Always go to notifications page first
+    // The notifications page will handle the specific link if needed
+    router.push('/notifications');
+    setShowNotifications(false);
+  };
+
+  // Navigate to Notifications page (for "View All" button)
+  const goToNotificationsPage = () => {
+    router.push('/notifications');
+    setShowNotifications(false);
   };
 
   useEffect(() => {
@@ -435,6 +489,14 @@ const Header2 = () => {
     }
   };
 
+  // Navigation items
+  const getDashboardLink = () => {
+    if (user?.role === 'admin' || user?.role === 'committee' || user?.role === 'staff') {
+      return '/committee/dashboard';
+    }
+    return '/application/dashboard';
+  };
+
   if (isLoading) {
     return (
       <>
@@ -466,16 +528,19 @@ const Header2 = () => {
           </div>
 
           <nav className="flex items-center space-x-4">
+            
             {/* Notifications */}
             {user && (
-              <div className="relative">
+              <div
+                ref={notificationRef}
+                className="relative"
+                onMouseEnter={handleNotificationMouseEnter}
+                onMouseLeave={handleNotificationMouseLeave}
+              >
                 <button
-                  onClick={() => {
-                    setShowNotifications(!showNotifications);
-                    if (showMenu) setShowMenu(false);
-                    if (showThemeMenu) setShowThemeMenu(false);
-                  }}
+                  ref={notificationButtonRef}
                   className="relative p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                  aria-label="Notifications"
                 >
                   <Bell className="w-5 h-5 sm:w-6 sm:h-6 text-gray-700 dark:text-gray-300" />
                   {unreadCount > 0 && (
@@ -490,15 +555,23 @@ const Header2 = () => {
                   <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 overflow-hidden">
                     <div className="flex justify-between items-center px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
                       <h3 className="font-semibold text-gray-900 dark:text-white">Notifications</h3>
-                      {unreadCount > 0 && (
+                      <div className="flex items-center gap-2">
                         <button
-                          onClick={markAllAsRead}
-                          className="text-xs text-green-600 dark:text-green-400 hover:text-green-700 flex items-center gap-1"
+                          onClick={goToNotificationsPage}
+                          className="text-xs text-green-600 dark:text-green-400 hover:text-green-700"
                         >
-                          <CheckCheck className="w-3 h-3" />
-                          Mark all read
+                          View All
                         </button>
-                      )}
+                        {unreadCount > 0 && (
+                          <button
+                            onClick={markAllAsRead}
+                            className="text-xs text-green-600 dark:text-green-400 hover:text-green-700 flex items-center gap-1"
+                          >
+                            <CheckCheck className="w-3 h-3" />
+                            Mark all read
+                          </button>
+                        )}
+                      </div>
                     </div>
                     
                     <div className="max-h-96 overflow-y-auto">
@@ -512,12 +585,13 @@ const Header2 = () => {
                           <p>No notifications yet</p>
                         </div>
                       ) : (
-                        notifications.map((notification) => (
+                        notifications.slice(0, 5).map((notification) => (
                           <div
                             key={notification.id}
-                            className={`border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${
+                            className={`border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors cursor-pointer ${
                               !notification.is_read ? 'bg-blue-50 dark:bg-blue-900/20' : ''
                             }`}
+                            onClick={() => handleNotificationClick(notification)}
                           >
                             <div className="p-3">
                               <div className="flex items-start gap-2">
@@ -525,69 +599,50 @@ const Header2 = () => {
                                   {getNotificationIcon(notification.notification_type)}
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                  <div className="flex justify-between items-start">
-                                    <p className="font-medium text-sm text-gray-900 dark:text-white">
-                                      {notification.title}
-                                    </p>
-                                    <div className="flex items-center gap-1 ml-2">
-                                      {!notification.is_read && (
-                                        <button
-                                          onClick={() => markAsRead(notification.id)}
-                                          className="p-1 text-gray-400 hover:text-green-600 dark:hover:text-green-400"
-                                          title="Mark as read"
-                                        >
-                                          <Check className="w-3 h-3" />
-                                        </button>
-                                      )}
-                                      <button
-                                        onClick={() => deleteNotification(notification.id)}
-                                        className="p-1 text-gray-400 hover:text-red-600 dark:hover:text-red-400"
-                                        title="Delete"
-                                      >
-                                        <X className="w-3 h-3" />
-                                      </button>
-                                    </div>
-                                  </div>
-                                  <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">
+                                  <p className="font-medium text-sm text-gray-900 dark:text-white">
+                                    {notification.title}
+                                  </p>
+                                  <p className="text-xs text-gray-600 dark:text-gray-300 mt-1 line-clamp-2">
                                     {notification.message}
                                   </p>
                                   <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                                     {formatRelativeTime(notification.created_at)}
                                   </p>
-                                  {notification.link && (
-                                    <Link
-                                      href={notification.link}
-                                      className="text-xs text-green-600 dark:text-green-400 hover:underline mt-1 inline-block"
-                                      onClick={() => {
-                                        if (!notification.is_read) {
-                                          markAsRead(notification.id);
-                                        }
-                                        setShowNotifications(false);
-                                      }}
-                                    >
-                                      View details →
-                                    </Link>
-                                  )}
                                 </div>
+                                {!notification.is_read && (
+                                  <div className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0 mt-1"></div>
+                                )}
                               </div>
                             </div>
                           </div>
                         ))
                       )}
                     </div>
+                    
+                    {notifications.length > 5 && (
+                      <div className="p-3 text-center border-t border-gray-200 dark:border-gray-700">
+                        <button
+                          onClick={goToNotificationsPage}
+                          className="text-sm text-green-600 dark:text-green-400 hover:text-green-700"
+                        >
+                          View all notifications
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             )}
 
-            {/* Theme Dropdown (replaces old Moon/Sun button) */}
-            <div className="relative">
+            {/* Theme Dropdown - Hover */}
+            <div
+              ref={themeRef}
+              className="relative"
+              onMouseEnter={handleThemeMouseEnter}
+              onMouseLeave={handleThemeMouseLeave}
+            >
               <button
-                onClick={() => {
-                  setShowThemeMenu(!showThemeMenu);
-                  if (showMenu) setShowMenu(false);
-                  if (showNotifications) setShowNotifications(false);
-                }}
+                ref={themeButtonRef}
                 className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                 aria-label="Change theme"
               >
@@ -639,15 +694,16 @@ const Header2 = () => {
               )}
             </div>
 
-            {/* User Menu */}
+            {/* User Menu - Hover */}
             {user ? (
-              <div className="relative">
+              <div
+                ref={menuRef}
+                className="relative"
+                onMouseEnter={handleMenuMouseEnter}
+                onMouseLeave={handleMenuMouseLeave}
+              >
                 <button
-                  onClick={() => {
-                    setShowMenu(!showMenu);
-                    if (showNotifications) setShowNotifications(false);
-                    if (showThemeMenu) setShowThemeMenu(false);
-                  }}
+                  ref={menuButtonRef}
                   className="flex items-center space-x-2 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                 >
                   <div className="hidden sm:flex flex-col items-end">
@@ -674,6 +730,16 @@ const Header2 = () => {
                         {user.email}
                       </p>
                     </div>
+
+                    {/* Dashboard Link in Mobile Menu */}
+                    <Link
+                      href={getDashboardLink()}
+                      className="flex items-center gap-3 px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors md:hidden"
+                      onClick={() => setShowMenu(false)}
+                    >
+                      <LayoutDashboard className="w-4 h-4" />
+                      <span>Dashboard</span>
+                    </Link>
 
                     <Link
                       href="/profile"

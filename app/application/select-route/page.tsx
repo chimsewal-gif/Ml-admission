@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
-  Home, ChevronRight, ArrowRight, AlertCircle, CheckCircle,
+  Home, ChevronRight, ArrowRight, AlertCircle, CheckCircle, X,
   Calendar, Clock, Laptop, Users, Building2, Globe
 } from 'lucide-react';
 
@@ -16,6 +16,12 @@ interface StudyRoute {
   bgColor: string;
   features: string[];
   schedule: string;
+}
+
+interface Toast {
+  id: number;
+  message: string;
+  type: 'success' | 'error' | 'info';
 }
 
 const studyRoutes: StudyRoute[] = [
@@ -72,13 +78,25 @@ const studyRoutes: StudyRoute[] = [
 export default function SelectStudyRoute() {
   const [selectedRoute, setSelectedRoute] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string>('');
-  const [success, setSuccess] = useState<string>(''); // ADDED: missing success state
   const [user, setUser] = useState<any>(null);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [applicationType, setApplicationType] = useState<string>('');
   const [applicationTypeName, setApplicationTypeName] = useState<string>('');
+  const [toasts, setToasts] = useState<Toast[]>([]);
   const router = useRouter();
+
+  // Add toast notification
+  const addToast = (message: string, type: 'success' | 'error' | 'info') => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(toast => toast.id !== id));
+    }, 4000);
+  };
+
+  const removeToast = (id: number) => {
+    setToasts(prev => prev.filter(toast => toast.id !== id));
+  };
 
   // Auth check and get application type
   useEffect(() => {
@@ -100,8 +118,8 @@ export default function SelectStudyRoute() {
       const savedAppTypeName = localStorage.getItem('userApplicationTypeName');
       
       if (!savedAppType) {
-        // No application type selected, go back
-        router.push('/application/select-type');
+        addToast('Please select an application type first', 'error');
+        setTimeout(() => router.push('/application/select-type'), 1500);
         return;
       }
       
@@ -115,19 +133,15 @@ export default function SelectStudyRoute() {
 
   const handleSelection = (routeId: string) => {
     setSelectedRoute(routeId);
-    setError('');
-    setSuccess(''); // Clear success when new selection is made
   };
 
   const handleContinue = async () => {
     if (!selectedRoute) {
-      setError('Please select a study route');
+      addToast('Please select a study route', 'error');
       return;
     }
 
     setIsLoading(true);
-    setError('');
-    setSuccess(''); // Clear previous success
 
     try {
       // Store the selected study route
@@ -142,7 +156,7 @@ export default function SelectStudyRoute() {
       // Also store in session for backup
       sessionStorage.setItem('studyRouteCompleted', 'true');
       
-      setSuccess(`${selectedRouteData?.name} selected successfully! Redirecting...`);
+      addToast(`${selectedRouteData?.name} selected successfully! Redirecting...`, 'success');
       
       // Redirect to high school records page
       setTimeout(() => {
@@ -150,7 +164,7 @@ export default function SelectStudyRoute() {
       }, 1500);
       
     } catch (error: any) {
-      setError(error.message || 'An unexpected error occurred. Please try again.');
+      addToast(error.message || 'An unexpected error occurred. Please try again.', 'error');
     } finally {
       setIsLoading(false);
     }
@@ -181,6 +195,37 @@ export default function SelectStudyRoute() {
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-4xl mx-auto px-4">
         
+        {/* Toast Notifications */}
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 flex flex-col items-center space-y-2 pointer-events-none">
+          {toasts.map((toast) => (
+            <div
+              key={toast.id}
+              className={`pointer-events-auto flex items-center gap-3 px-5 py-3 rounded-lg shadow-lg animate-fade-in-up ${
+                toast.type === 'success' 
+                  ? 'bg-green-600 text-white' 
+                  : toast.type === 'error'
+                  ? 'bg-red-600 text-white'
+                  : 'bg-blue-600 text-white'
+              }`}
+            >
+              {toast.type === 'success' ? (
+                <CheckCircle className="w-5 h-5" />
+              ) : toast.type === 'error' ? (
+                <AlertCircle className="w-5 h-5" />
+              ) : (
+                <Calendar className="w-5 h-5" />
+              )}
+              <span className="text-sm font-medium">{toast.message}</span>
+              <button
+                onClick={() => removeToast(toast.id)}
+                className="ml-2 hover:opacity-80"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+
         {/* Breadcrumb Navigation */}
         <div className="mb-6">
           <nav className="flex items-center gap-2 text-sm">
@@ -236,22 +281,6 @@ export default function SelectStudyRoute() {
           </div>
 
           <div className="p-6">
-            {/* Error Alert */}
-            {error && (
-              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3">
-                <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
-                <p className="text-sm text-red-700">{error}</p>
-              </div>
-            )}
-
-            {/* Success Alert */}
-            {success && (
-              <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-3">
-                <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0" />
-                <p className="text-sm text-green-700">{success}</p>
-              </div>
-            )}
-
             {/* Study Route Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
               {studyRoutes.map((route) => (
@@ -282,7 +311,7 @@ export default function SelectStudyRoute() {
 
             {/* Selected Route Details */}
             {selectedRouteDetails && (
-              <div className="mb-8 border-2 border-dashed border-green-500 rounded-lg overflow-hidden">
+              <div className="mb-8 border-2 border-dashed border-green-500 rounded-lg overflow-hidden animate-fade-in">
                 <div className="bg-green-50 p-4 border-b border-dashed border-green-200">
                   <div className="flex items-center gap-3">
                     <div className="p-2 bg-green-100 rounded-lg text-green-600">
@@ -314,6 +343,13 @@ export default function SelectStudyRoute() {
                     ))}
                   </ul>
                 </div>
+              </div>
+            )}
+
+            {/* Hint when no route selected */}
+            {!selectedRouteDetails && (
+              <div className="mb-8 p-4 bg-gray-50 rounded-lg border border-gray-200 text-center">
+                <p className="text-gray-500 text-sm">Select a study route above to see details</p>
               </div>
             )}
 

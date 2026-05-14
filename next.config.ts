@@ -1,7 +1,12 @@
-import type { NextConfig } from "next";
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  allowedDevOrigins: [
+    '*.ngrok-free.dev',     // Allow all ngrok subdomains
+    'localhost',
+    '127.0.0.1',
+    '*.ngrok.io',           // Also allow older ngrok domains if needed
+  ],
+  // Your other config options here...
+}
 
-const nextConfig: NextConfig = {
-  /* config options here */
-};
-
-export default nextConfig;
+module.exports = nextConfig

@@ -20,6 +20,9 @@ type Programme = {
   category?: string;
   code?: string;
   is_active?: boolean;
+  programme_type?: string;
+  study_mode?: string;
+  application_category?: string;
 };
 
 type Choice = {
@@ -95,7 +98,6 @@ const StyledSelect = ({
 
   return (
     <div ref={dropdownRef} className="relative w-full">
-      {/* Dropdown Trigger Button */}
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
@@ -111,7 +113,6 @@ const StyledSelect = ({
         <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
-      {/* Dropdown Menu */}
       <AnimatePresence>
         {isOpen && (
           <motion.div
@@ -121,7 +122,6 @@ const StyledSelect = ({
             transition={{ duration: 0.15 }}
             className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden"
           >
-            {/* Search Bar */}
             <div className="p-2 border-b border-gray-100">
               <div className="relative">
                 <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -136,7 +136,6 @@ const StyledSelect = ({
               </div>
             </div>
 
-            {/* Options List */}
             <div className="max-h-60 overflow-y-auto">
               {filteredOptions.length === 0 ? (
                 <div className="p-4 text-center text-gray-400 text-sm">
@@ -180,33 +179,32 @@ const getRankSuffix = (rank: number): string => {
   return "th";
 };
 
-// Map application types to programme categories based on the select-type page
+// Map application types to programme categories
 const getCategoryFromApplicationType = (applicationType: string): string[] => {
   const categoryMap: Record<string, string[]> = {
-    'degree': ['Bachelor', 'Undergraduate', 'Degree', 'BSc', 'BA', 'BCom', 'Generic', 'Upgrading'],
-    'masters': ['Master', 'MSc', 'MA', 'MBA', 'Postgraduate', 'Masters', 'Master\'s'],
-    'phd': ['PhD', 'Doctorate', 'Doctoral', 'DPhil', 'Research'],
-    'diploma': ['Diploma', 'Certificate', 'Undergraduate'],
-    'certificate': ['Certificate', 'Short Course', 'Foundation', 'Training'],
-    // Legacy support
-    'odl': ['ODL', 'Open and Distance Learning', 'Distance', 'Bachelor'],
-    'postgraduate': ['Postgraduate', 'Master', 'Doctoral', 'PhD', 'Masters'],
-    'international': ['International', 'Bachelor', 'Undergraduate', 'Postgraduate']
+    'degree': ['degree', 'undergraduate', 'bachelor', 'bsc', 'ba', 'bcom', 'bed', 'beng', 'generic', 'upgrading'],
+    'masters': ['masters', 'master', 'msc', 'ma', 'mba', 'postgraduate', 'master\'s'],
+    'phd': ['phd', 'doctorate', 'doctoral', 'dphil', 'research'],
+    'diploma': ['diploma', 'certificate', 'advanced diploma'],
+    'certificate': ['certificate', 'short course', 'foundation', 'training'],
+    'odl': ['odl', 'open and distance learning', 'distance', 'degree', 'generic'],
+    'postgraduate': ['postgraduate', 'master', 'masters', 'phd', 'doctoral'],
+    'international': ['international', 'degree', 'undergraduate', 'postgraduate']
   };
-  return categoryMap[applicationType] || ['Bachelor', 'Undergraduate', 'Diploma'];
+  return categoryMap[applicationType] || ['degree', 'undergraduate', 'diploma'];
 };
 
 // Get readable application type name
 const getApplicationTypeName = (type: string): string => {
   const names: Record<string, string> = {
-    'degree': "Bachelor's Degree",
-    'masters': "Master's Degree",
-    'phd': "PhD / Doctorate",
+    'degree': "Bachelor's Degree Programmes",
+    'masters': "Master's Degree Programmes",
+    'phd': "PhD / Doctorate Programmes",
     'diploma': "Diploma Programmes",
     'certificate': "Certificate Programmes",
-    'odl': 'ODL Student',
-    'postgraduate': 'Postgraduate',
-    'international': 'International Student'
+    'odl': 'ODL Programmes',
+    'postgraduate': 'Postgraduate Programmes',
+    'international': 'International Student Programmes'
   };
   return names[type] || type;
 };
@@ -214,14 +212,7 @@ const getApplicationTypeName = (type: string): string => {
 export default function ProgrammesPage() {
   const [programmes, setProgrammes] = useState<Programme[]>([]);
   const [filteredProgrammes, setFilteredProgrammes] = useState<Programme[]>([]);
-  const [choices, setChoices] = useState<Choice[]>([
-    { id: 1, programme: null },
-    { id: 2, programme: null },
-    { id: 3, programme: null },
-    { id: 4, programme: null },
-    { id: 5, programme: null },
-    { id: 6, programme: null },
-  ]);
+  const [choices, setChoices] = useState<Choice[]>([]);
   const [savedChoices, setSavedChoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -239,6 +230,9 @@ export default function ProgrammesPage() {
   // Modal state
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   
+  // Maximum number of choices (6)
+  const MAX_CHOICES = 6;
+  
   const router = useRouter();
 
   // Helper to get token from localStorage
@@ -250,11 +244,26 @@ export default function ProgrammesPage() {
   };
 
   // Get application type from localStorage
-  const getApplicationType = () => {
+  const getApplicationTypeFromStorage = () => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('userApplicationType') || localStorage.getItem('userRole') || '';
+      return localStorage.getItem('userApplicationType') || 
+             localStorage.getItem('userRole') || 
+             localStorage.getItem('selectedApplicationType') || 
+             '';
     }
     return '';
+  };
+
+  // Initialize choices based on available programmes
+  const initializeChoices = (availableCount: number) => {
+    // Show only up to the number of available programmes (max 6)
+    const numberOfChoices = Math.min(availableCount, MAX_CHOICES);
+    const newChoices: Choice[] = [];
+    for (let i = 1; i <= numberOfChoices; i++) {
+      newChoices.push({ id: i, programme: null });
+    }
+    setChoices(newChoices);
+    return newChoices;
   };
 
   // Fetch MSCE results for ML recommendations
@@ -275,7 +284,7 @@ export default function ProgrammesPage() {
     }
   };
 
-  // Get ML recommendations (called when modal opens)
+  // Get ML recommendations
   const getMLRecommendations = async () => {
     const token = getToken();
     if (!token) return;
@@ -283,7 +292,6 @@ export default function ProgrammesPage() {
     setIsLoadingRecommendations(true);
     
     try {
-      // Fetch MSCE results
       const msceResults = await fetchMSCEResults();
       
       if (!msceResults || msceResults.length === 0) {
@@ -294,26 +302,35 @@ export default function ProgrammesPage() {
         return;
       }
       
-      // Format subjects for ML model
       const formattedSubjects = msceResults.map((s: any) => ({
         subject: s.subject,
         grade: s.grade
       }));
       
-      // Get recommendations from ML endpoint - request ALL programmes
+      let programmeTypeParam = 'all';
+      if (applicationType === 'phd') {
+        programmeTypeParam = 'phd';
+      } else if (applicationType === 'masters') {
+        programmeTypeParam = 'masters';
+      } else if (applicationType === 'degree') {
+        programmeTypeParam = 'degree';
+      } else if (applicationType === 'diploma') {
+        programmeTypeParam = 'diploma';
+      } else if (applicationType === 'certificate') {
+        programmeTypeParam = 'certificate';
+      }
+      
       const response = await axios.post(
         `${API_BASE_URL}/ml/recommend-programmes/`,
         {
           subjects: formattedSubjects,
-          top_n: 100,  // Request up to 100 recommendations
-          programme_type: applicationType === 'phd' ? 'research' : applicationType === 'masters' ? 'postgraduate' : 'all'
+          top_n: 100,
+          application_category: programmeTypeParam
         },
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
       
       if (response.data.success && response.data.recommendations) {
-        // Show ALL recommendations without filtering or slicing
-        // Sort by fit_score descending to show best matches first
         const allRecommendations = response.data.recommendations.sort((a: MLRecommendation, b: MLRecommendation) => b.fit_score - a.fit_score);
         setMlRecommendations(allRecommendations);
         setMlStudentStats(response.data.student_stats);
@@ -343,7 +360,6 @@ export default function ProgrammesPage() {
     }
   };
 
-  // Open AI modal and fetch recommendations
   const openAIModal = () => {
     setShowAIModal(true);
     if (!hasLoadedRecommendations) {
@@ -351,14 +367,11 @@ export default function ProgrammesPage() {
     }
   };
 
-  // Close AI modal
   const closeAIModal = () => {
     setShowAIModal(false);
   };
 
-  // Add recommendation to choices
   const addRecommendationToChoice = (recommendation: MLRecommendation) => {
-    // Find the first empty choice
     const emptyIndex = choices.findIndex(c => !c.programme);
     if (emptyIndex !== -1) {
       updateChoice(choices[emptyIndex].id, recommendation.id);
@@ -366,7 +379,7 @@ export default function ProgrammesPage() {
       setNotificationType("success");
       setTimeout(() => setNotification(""), 3000);
     } else {
-      setNotification("All 6 choices are already filled. Please remove one to add this recommendation.");
+      setNotification(`All ${choices.length} choices are already filled. Please remove one to add this recommendation.`);
       setNotificationType("warning");
       setTimeout(() => setNotification(""), 3000);
     }
@@ -404,8 +417,6 @@ export default function ProgrammesPage() {
       }
 
       setProgrammes(allProgrammes);
-      
-      // Filter programmes based on application type
       filterProgrammesByType(allProgrammes, applicationType);
       
     } catch (err: any) {
@@ -432,33 +443,56 @@ export default function ProgrammesPage() {
   const filterProgrammesByType = (allProgrammes: Programme[], type: string) => {
     if (!type) {
       setFilteredProgrammes(allProgrammes);
+      const availableCount = allProgrammes.length;
+      initializeChoices(Math.min(availableCount, MAX_CHOICES));
       return;
     }
     
     const allowedCategories = getCategoryFromApplicationType(type);
     
-    // Filter programmes that match the application type
     const filtered = allProgrammes.filter(programme => {
       const category = programme.category?.toLowerCase() || '';
       const name = programme.name?.toLowerCase() || '';
       const department = programme.department?.toLowerCase() || '';
-      const programmeType = programme.type?.toLowerCase() || '';
+      const programmeType = programme.programme_type?.toLowerCase() || '';
+      const applicationCategory = programme.application_category?.toLowerCase() || '';
       
-      // Check if programme matches any of the allowed categories
-      return allowedCategories.some(allowed => 
+      const matches = allowedCategories.some(allowed => 
         category.includes(allowed.toLowerCase()) ||
         name.includes(allowed.toLowerCase()) ||
         department.includes(allowed.toLowerCase()) ||
-        programmeType.includes(allowed.toLowerCase())
+        programmeType.includes(allowed.toLowerCase()) ||
+        applicationCategory.includes(allowed.toLowerCase())
       );
+      
+      if (type === 'phd') {
+        return matches && (name.includes('phd') || name.includes('doctorate') || name.includes('doctoral'));
+      }
+      
+      if (type === 'masters') {
+        return matches && (name.includes('master') || name.includes('msc') || name.includes('ma') || name.includes('mba'));
+      }
+      
+      if (type === 'degree') {
+        return matches && (name.includes('bachelor') || name.includes('bsc') || name.includes('ba') || 
+                          name.includes('bcom') || name.includes('bed') || category === 'undergraduate');
+      }
+      
+      return matches;
     });
     
     setFilteredProgrammes(filtered);
+    
+    // Initialize choices based on available filtered programmes
+    const availableCount = filtered.length;
+    initializeChoices(Math.min(availableCount, MAX_CHOICES));
     
     if (filtered.length === 0) {
       setNotification(`No ${getApplicationTypeName(type)} programmes found. Please contact support.`);
       setNotificationType("warning");
       setTimeout(() => setNotification(""), 5000);
+    } else {
+      console.log(`Found ${filtered.length} programmes for ${type}`);
     }
   };
 
@@ -479,11 +513,10 @@ export default function ProgrammesPage() {
         const savedChoicesData = response.data.choices;
         setSavedChoices(savedChoicesData);
         
-        // Map the saved choices to the choices state
         const newChoices = [...choices];
         savedChoicesData.forEach((savedChoice: any) => {
           const index = savedChoice.choice_number - 1;
-          if (index >= 0 && index < 6) {
+          if (index >= 0 && index < newChoices.length) {
             newChoices[index] = {
               id: savedChoice.choice_number,
               programme: {
@@ -507,7 +540,7 @@ export default function ProgrammesPage() {
     }
   };
 
-  // Save choices to backend (actual save function)
+  // Save choices to backend
   const performSaveChoices = async () => {
     setSaving(true);
     
@@ -590,10 +623,12 @@ export default function ProgrammesPage() {
     }
   };
 
-  // Show confirmation modal before saving
   const handleSaveChoices = () => {
-    if (!canProceed) {
-      setNotification("Please select all 6 programmes before saving.");
+    const filledCount = choices.filter(c => c.programme).length;
+    const requiredCount = choices.length;
+    
+    if (filledCount !== requiredCount) {
+      setNotification(`Please select all ${requiredCount} programme(s) before saving. You have selected ${filledCount}/${requiredCount}.`);
       setNotificationType("warning");
       setTimeout(() => setNotification(""), 3000);
       return;
@@ -608,7 +643,7 @@ export default function ProgrammesPage() {
       return;
     }
     
-    const userType = getApplicationType();
+    const userType = getApplicationTypeFromStorage();
     setApplicationType(userType);
     
     if (!userType) {
@@ -659,9 +694,6 @@ export default function ProgrammesPage() {
     ));
   };
 
-  const areAllChoicesFilled = choices.every(choice => choice.programme !== null);
-  const canProceed = areAllChoicesFilled;
-
   const getAvailableProgrammes = (currentChoiceId: number) => {
     const selectedIds = choices
       .filter(choice => choice.id !== currentChoiceId && choice.programme)
@@ -671,15 +703,20 @@ export default function ProgrammesPage() {
   };
 
   const getRankLabel = (index: number) => {
-    const ranks = [
-      { label: "1st Choice", icon: Award, color: "text-green-600", bg: "bg-green-100" },
-      { label: "2nd Choice", icon: Star, color: "text-green-600", bg: "bg-green-100" },
-      { label: "3rd Choice", icon: TrendingUp, color: "text-green-600", bg: "bg-green-100" },
-      { label: "4th Choice", icon: Award, color: "text-green-600", bg: "bg-green-100" },
-      { label: "5th Choice", icon: Star, color: "text-green-600", bg: "bg-green-100" },
-      { label: "6th Choice", icon: TrendingUp, color: "text-green-600", bg: "bg-green-100" },
-    ];
-    return ranks[index];
+    const rankNumber = index + 1;
+    let label = `${rankNumber}${getRankSuffix(rankNumber)} Choice`;
+    let Icon = Award;
+    
+    if (rankNumber === 1 || rankNumber === 4) Icon = Award;
+    else if (rankNumber === 2 || rankNumber === 5) Icon = Star;
+    else if (rankNumber === 3 || rankNumber === 6) Icon = TrendingUp;
+    
+    return {
+      label,
+      icon: Icon,
+      color: "text-green-600",
+      bg: "bg-green-100"
+    };
   };
 
   const getSelectedProgrammesSummary = () => {
@@ -699,10 +736,24 @@ export default function ProgrammesPage() {
     }
   };
 
+  const filledChoicesCount = choices.filter(c => c.programme).length;
+  const totalChoices = choices.length;
+  const isAllFilled = filledChoicesCount === totalChoices;
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 text-green-600 animate-spin mx-auto mb-4" />
+          <p className="text-gray-600">Loading programmes...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-4xl mx-auto px-4">
-        {/* Main Card */}
         <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
           {/* Header */}
           <div className="border-b border-gray-200 p-6">
@@ -712,7 +763,6 @@ export default function ProgrammesPage() {
                 <h2 className="text-xl font-semibold text-gray-800">PROGRAMME SELECTION</h2>
               </div>
               
-              {/* AI Recommendations Button */}
               <button
                 onClick={openAIModal}
                 className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all shadow-md"
@@ -728,7 +778,7 @@ export default function ProgrammesPage() {
                 You are applying as: <strong className="text-green-700">{getApplicationTypeName(applicationType)}</strong>
               </p>
               <p className="text-sm text-gray-600 mt-1">
-                Select your preferred programmes in order of priority. You must select exactly 6 programmes.
+                Select your preferred programmes in order of priority. You must select exactly {totalChoices} programme{totalChoices !== 1 ? 's' : ''}.
               </p>
             </div>
           </div>
@@ -754,156 +804,146 @@ export default function ProgrammesPage() {
               </div>
             )}
 
-            {/* Loading State */}
-            {loading ? (
-              <div className="text-center py-12">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto mb-4"></div>
-                <p className="text-gray-600">Loading programmes...</p>
-              </div>
-            ) : (
-              <>
-                {/* Show application type info and available programmes count */}
-                <div className="mb-4 flex justify-between items-center">
-                  <p className="text-sm text-gray-600">
-                    Showing <span className="font-semibold text-green-600">{filteredProgrammes.length}</span> programmes for{" "}
-                    <span className="font-semibold">{getApplicationTypeName(applicationType)}</span>
-                  </p>
-                </div>
+            <div className="mb-4 flex justify-between items-center">
+              <p className="text-sm text-gray-600">
+                Showing <span className="font-semibold text-green-600">{filteredProgrammes.length}</span> programmes for{" "}
+                <span className="font-semibold">{getApplicationTypeName(applicationType)}</span>
+              </p>
+              <p className="text-sm text-gray-600">
+                You need to select <span className="font-semibold text-green-600">{totalChoices}</span> programme{totalChoices !== 1 ? 's' : ''}
+              </p>
+            </div>
 
-                {/* Choices Grid */}
-                <div className="space-y-4 mb-8">
-                  {choices.map((choice, index) => {
-                    const { label, icon: Icon, color, bg } = getRankLabel(index);
-                    const availableProgrammes = getAvailableProgrammes(choice.id);
-                    
-                    return (
-                      <div
-                        key={choice.id}
-                        className="border border-gray-200 rounded-lg p-4 hover:border-green-300 transition-all duration-200"
-                      >
-                        <div className="flex flex-col md:flex-row md:items-start gap-4">
-                          {/* Rank Badge */}
-                          <div className={`flex items-center gap-2 ${bg} rounded-lg px-3 py-1.5 min-w-[110px]`}>
-                            <Icon className={`w-4 h-4 ${color}`} />
-                            <span className={`font-semibold text-sm ${color}`}>{label}</span>
-                          </div>
-
-                          {/* Styled Programme Select Dropdown */}
-                          <div className="flex-1">
-                            <StyledSelect
-                              value={choice.programme?.id || ""}
-                              onChange={(programmeId) => updateChoice(choice.id, programmeId)}
-                              options={availableProgrammes}
-                              placeholder="-- Select a programme --"
-                            />
-                            
-                            {/* Selected Programme Details */}
-                            {choice.programme && (
-                              <div className="mt-3 p-3 bg-gray-50 rounded-lg">
-                                <div className="flex flex-wrap gap-3 text-sm">
-                                  <div className="flex items-center gap-1 text-gray-600">
-                                    <Building2 className="w-4 h-4 text-green-600" />
-                                    <span>{choice.programme.department || "Not specified"}</span>
-                                  </div>
-                                  <div className="flex items-center gap-1 text-gray-600">
-                                    <Clock className="w-4 h-4 text-green-600" />
-                                    <span>{choice.programme.duration || "Not specified"}</span>
-                                  </div>
-                                  <div className="flex items-center gap-1 text-gray-600">
-                                    <BookOpen className="w-4 h-4 text-green-600" />
-                                    <span>{choice.programme.category || "Not specified"}</span>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Remove Button */}
-                          {choice.programme && (
-                            <button
-                              onClick={() => removeChoice(choice.id)}
-                              className="p-1.5 text-gray-400 hover:text-red-500 transition-colors"
-                              title="Remove selection"
-                            >
-                              <Trash2 className="w-5 h-5" />
-                            </button>
-                          )}
-                        </div>
+            {/* Choices Grid - Dynamically rendered based on totalChoices */}
+            <div className="space-y-4 mb-8">
+              {choices.map((choice, index) => {
+                const { label, icon: Icon, color, bg } = getRankLabel(index);
+                const availableProgrammes = getAvailableProgrammes(choice.id);
+                
+                return (
+                  <div
+                    key={choice.id}
+                    className={`border rounded-lg p-4 transition-all duration-200 ${
+                      choice.programme ? 'border-green-300 bg-green-50/30' : 'border-gray-200 hover:border-green-300'
+                    }`}
+                  >
+                    <div className="flex flex-col md:flex-row md:items-start gap-4">
+                      <div className={`flex items-center gap-2 ${bg} rounded-lg px-3 py-1.5 min-w-[110px]`}>
+                        <Icon className={`w-4 h-4 ${color}`} />
+                        <span className={`font-semibold text-sm ${color}`}>{label}</span>
                       </div>
-                    );
-                  })}
-                </div>
 
-                {/* Progress Indicator */}
-                <div className="mb-8 bg-gray-50 rounded-lg p-4 border border-gray-200">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-gray-700">Selection Progress</span>
-                    <span className="text-sm font-semibold text-green-700">
-                      {choices.filter(c => c.programme).length}/6 Completed
-                    </span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-                    <div 
-                      className="bg-green-600 h-2 rounded-full transition-all duration-500"
-                      style={{ width: `${(choices.filter(c => c.programme).length / 6) * 100}%` }}
-                    />
-                  </div>
-                  {!areAllChoicesFilled && (
-                    <p className="text-xs text-gray-500 mt-2">
-                      You need to select {6 - choices.filter(c => c.programme).length} more programme(s)
-                    </p>
-                  )}
-                </div>
-
-                {/* Action Section */}
-                {savedChoices.length === 0 ? (
-                  <div className="pt-4 border-t border-gray-200">
-                    <div className="flex justify-end">
-                      <button
-                        onClick={handleSaveChoices}
-                        disabled={saving || !canProceed}
-                        className={`px-6 py-2.5 rounded-lg text-white font-semibold transition-colors flex items-center gap-2 ${
-                          canProceed
-                            ? 'bg-green-600 hover:bg-green-700'
-                            : 'bg-gray-400 cursor-not-allowed'
-                        }`}
-                      >
-                        {saving ? (
-                          <>
-                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                            Saving...
-                          </>
-                        ) : (
-                          <>
-                            <CheckCircle className="w-4 h-4" />
-                            Save & Continue
-                          </>
+                      <div className="flex-1">
+                        <StyledSelect
+                          value={choice.programme?.id || ""}
+                          onChange={(programmeId) => updateChoice(choice.id, programmeId)}
+                          options={availableProgrammes}
+                          placeholder="-- Select a programme --"
+                        />
+                        
+                        {choice.programme && (
+                          <div className="mt-3 p-3 bg-white rounded-lg border border-gray-100">
+                            <div className="flex flex-wrap gap-3 text-sm">
+                              <div className="flex items-center gap-1 text-gray-600">
+                                <Building2 className="w-4 h-4 text-green-600" />
+                                <span>{choice.programme.department || "Not specified"}</span>
+                              </div>
+                              <div className="flex items-center gap-1 text-gray-600">
+                                <Clock className="w-4 h-4 text-green-600" />
+                                <span>{choice.programme.duration || "Not specified"}</span>
+                              </div>
+                              <div className="flex items-center gap-1 text-gray-600">
+                                <GraduationCap className="w-4 h-4 text-green-600" />
+                                <span>{choice.programme.category || "Not specified"}</span>
+                              </div>
+                            </div>
+                          </div>
                         )}
-                      </button>
+                      </div>
+
+                      {choice.programme && (
+                        <button
+                          onClick={() => removeChoice(choice.id)}
+                          className="p-1.5 text-gray-400 hover:text-red-500 transition-colors"
+                          title="Remove selection"
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      )}
                     </div>
                   </div>
-                ) : (
-                  <div className="bg-green-50 border-2 border-green-500 rounded-lg p-6 text-center">
-                    <CheckCircle className="w-12 h-12 text-green-600 mx-auto mb-3" />
-                    <h3 className="text-lg font-bold text-gray-800 mb-1">Choices Saved!</h3>
-                    <p className="text-gray-600 text-sm mb-4">
-                      Your programme preferences have been saved successfully.
-                    </p>
-                    <button
-                      onClick={() => router.push("/application/education")}
-                      className="bg-green-600 hover:bg-green-700 text-white font-semibold px-5 py-2 rounded-lg transition-colors"
-                    >
-                      Continue to Education
-                    </button>
-                  </div>
-                )}
-              </>
+                );
+              })}
+            </div>
+
+            {/* Progress Indicator */}
+            <div className="mb-8 bg-gray-50 rounded-lg p-4 border border-gray-200">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-gray-700">Selection Progress</span>
+                <span className="text-sm font-semibold text-green-700">
+                  {filledChoicesCount}/{totalChoices} Completed
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                <div 
+                  className="bg-green-600 h-2 rounded-full transition-all duration-500"
+                  style={{ width: `${(filledChoicesCount / totalChoices) * 100}%` }}
+                />
+              </div>
+              {!isAllFilled && (
+                <p className="text-xs text-gray-500 mt-2">
+                  You need to select {totalChoices - filledChoicesCount} more programme(s)
+                </p>
+              )}
+            </div>
+
+            {/* Action Section */}
+            {savedChoices.length === 0 ? (
+              <div className="pt-4 border-t border-gray-200">
+                <div className="flex justify-end">
+                  <button
+                    onClick={handleSaveChoices}
+                    disabled={saving || !isAllFilled}
+                    className={`px-6 py-2.5 rounded-lg text-white font-semibold transition-colors flex items-center gap-2 ${
+                      isAllFilled
+                        ? 'bg-green-600 hover:bg-green-700'
+                        : 'bg-gray-400 cursor-not-allowed'
+                    }`}
+                  >
+                    {saving ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="w-4 h-4" />
+                        Save & Continue
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-green-50 border-2 border-green-500 rounded-lg p-6 text-center">
+                <CheckCircle className="w-12 h-12 text-green-600 mx-auto mb-3" />
+                <h3 className="text-lg font-bold text-gray-800 mb-1">Choices Saved!</h3>
+                <p className="text-gray-600 text-sm mb-4">
+                  Your programme preferences have been saved successfully.
+                </p>
+                <button
+                  onClick={() => router.push("/application/education")}
+                  className="bg-green-600 hover:bg-green-700 text-white font-semibold px-5 py-2 rounded-lg transition-colors"
+                >
+                  Continue to Education
+                </button>
+              </div>
             )}
           </div>
         </div>
       </div>
 
-      {/* AI Recommendations Modal - Simple Header like PROGRAMME SELECTION */}
+      {/* AI Recommendations Modal */}
       <AnimatePresence>
         {showAIModal && (
           <motion.div
@@ -921,7 +961,6 @@ export default function ProgrammesPage() {
               className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden"
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Modal Header - Simple border bottom like PROGRAMME SELECTION */}
               <div className="border-b border-gray-200 px-6 py-4 flex items-center justify-between sticky top-0 z-10 bg-white">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
@@ -944,7 +983,6 @@ export default function ProgrammesPage() {
                 </button>
               </div>
 
-              {/* Modal Body - Scrollable */}
               <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
                 {isLoadingRecommendations ? (
                   <div className="text-center py-12">
@@ -964,9 +1002,8 @@ export default function ProgrammesPage() {
                       Close
                     </button>
                   </div>
-                ) : (
+                ) : mlRecommendations.length > 0 ? (
                   <>
-                    {/* Student Stats Summary */}
                     {mlStudentStats && (
                       <div className="mb-6 bg-green-50 rounded-xl p-4 border border-green-200">
                         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -995,18 +1032,16 @@ export default function ProgrammesPage() {
                       </div>
                     )}
 
-                    {/* Recommendations List - ALL recommendations */}
                     <div className="space-y-4">
                       <div className="flex items-center justify-between mb-2">
                         <p className="text-sm font-medium text-gray-700 flex items-center gap-2">
                           <Sparkles className="w-4 h-4 text-green-600" />
-                          All Recommended Programmes ({mlRecommendations.length})
+                          Recommended Programmes for {getApplicationTypeName(applicationType)} ({mlRecommendations.length})
                         </p>
                         <p className="text-xs text-gray-400">Sorted by fit score</p>
                       </div>
                       
-                      {/* Show ALL recommendations - no slice */}
-                      {mlRecommendations.map((rec, idx) => (
+                      {mlRecommendations.map((rec) => (
                         <div
                           key={rec.id}
                           className="border border-green-100 rounded-xl p-4 hover:border-green-300 hover:shadow-md transition-all"
@@ -1046,7 +1081,6 @@ export default function ProgrammesPage() {
                                 </span>
                               </div>
 
-                              {/* Required Subjects */}
                               {rec.required_subjects.length > 0 && (
                                 <div className="mb-2">
                                   <p className="text-xs font-medium text-gray-600 mb-1">Required Subjects:</p>
@@ -1067,7 +1101,6 @@ export default function ProgrammesPage() {
                                 </div>
                               )}
 
-                              {/* Missing Subjects Warning */}
                               {rec.missing_subjects.length > 0 && (
                                 <div className="bg-orange-50 border-l-4 border-orange-500 p-2 rounded-r-lg mt-2">
                                   <p className="text-xs text-orange-700">
@@ -1077,7 +1110,6 @@ export default function ProgrammesPage() {
                               )}
                             </div>
 
-                            {/* Fit Score and Add Button */}
                             <div className="text-center min-w-[100px]">
                               <div className="relative w-20 h-20 mx-auto">
                                 <svg className="w-20 h-20 transform -rotate-90">
@@ -1121,15 +1153,14 @@ export default function ProgrammesPage() {
                       ))}
                     </div>
                   </>
-                )}
+                ) : null}
               </div>
 
-              {/* Modal Footer */}
               {!isLoadingRecommendations && mlRecommendations.length > 0 && (
                 <div className="border-t border-gray-200 px-6 py-3 bg-gray-50 sticky bottom-0">
                   <p className="text-xs text-gray-500 text-center flex items-center justify-center gap-2">
                     <Zap className="w-3 h-3 text-green-600" />
-                    Showing {mlRecommendations.length} programme recommendations. Click "Add to List" to add any programme to your 6 choices.
+                    Showing {mlRecommendations.length} programme recommendations. Click "Add to List" to add any programme to your {totalChoices} choices.
                   </p>
                 </div>
               )}

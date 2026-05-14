@@ -20,7 +20,127 @@ export default function LoginPage() {
 
   useEffect(() => {
     setIsClient(true);
+    // Initialize Google Sign-In
+    initializeGoogleSignIn();
   }, []);
+
+  const initializeGoogleSignIn = () => {
+    // Check if Google API is loaded
+    if (typeof window !== 'undefined' && window.google) {
+      renderGoogleButton();
+    } else {
+      // Load Google API script
+      const script = document.createElement('script');
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.defer = true;
+      script.onload = renderGoogleButton;
+      document.body.appendChild(script);
+    }
+  };
+const renderGoogleButton = () => {
+  if (typeof window !== 'undefined' && window.google) {
+    window.google.accounts.id.initialize({
+      client_id: '975091470721-9kff2epf2mfudrb1mptg1kbqu75m7336.apps.googleusercontent.com', // Your actual Client ID
+      callback: handleGoogleCredentialResponse,
+      auto_select: false,
+      cancel_on_tap_outside: true,
+    });
+    
+    window.google.accounts.id.renderButton(
+      document.getElementById('googleSignInButton'),
+      { 
+        theme: 'outline', 
+        size: 'large',
+        width: '100%',
+        text: 'signin_with',
+        shape: 'rectangular'
+      }
+    );
+  }
+};
+
+const handleGoogleCredentialResponse = async (response: any) => {
+    setIsLoading(true);
+    setError('');
+    
+    try {
+      // Send the Google credential to your backend
+      const backendResponse = await fetch('http://127.0.0.1:8000/api/google-login/', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          credential: response.credential,
+          client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID
+        }),
+      });
+
+      const data = await backendResponse.json();
+
+      if (!backendResponse.ok || !data.success) {
+        setError(data.message || 'Google login failed. Please try again.');
+        setIsLoading(false);
+        return;
+      }
+
+      if (data.token) {
+        localStorage.setItem('token', data.token);
+      }
+      
+      if (data.user) {
+        // Determine the user's role
+        let userRole = data.user.role || 'guest';
+        
+        // If role is not set, try to determine from email or other fields
+        if (userRole === 'guest' && data.user.email) {
+          const email = data.user.email.toLowerCase();
+          if (email.includes('admin')) userRole = 'admin';
+          else if (email.includes('officer')) userRole = 'admission_officer';
+          else if (email.includes('committee')) userRole = 'committee';
+          else userRole = 'student';
+        }
+        
+        const userData = {
+          id: data.user.id,
+          first_name: data.user.first_name || '',
+          last_name: data.user.last_name || '',
+          email: data.user.email || '',
+          username: data.user.username || '',
+          role: userRole,
+          is_admin: userRole === 'admin' || userRole === 'administrator',
+          is_admission_officer: userRole === 'admission_officer',
+          is_committee: userRole === 'committee'
+        };
+        
+        localStorage.setItem('user', JSON.stringify(userData));
+        localStorage.setItem('userRole', userRole);
+        window.dispatchEvent(new Event('userLoggedIn'));
+        
+        const redirectPath = getRedirectPath(userRole);
+        
+        // Show role-specific success message
+        let roleMessage = '';
+        if (userRole === 'admin') roleMessage = 'Welcome Administrator!';
+        else if (userRole === 'admission_officer') roleMessage = 'Welcome Admission Officer!';
+        else if (userRole === 'committee') roleMessage = 'Welcome Committee Member!';
+        else roleMessage = 'Login successful!';
+        
+        setError(`✅ ${roleMessage} Redirecting...`);
+        
+        setTimeout(() => {
+          router.push(redirectPath);
+        }, 1500);
+      }
+
+    } catch (err: any) {
+      console.error('Google login error:', err);
+      setError('Network error. Please check your connection and try again.');
+      setIsLoading(false);
+    }
+  };
 
   function calculatePasswordScore(password: string): number {
     let score = 0;
@@ -264,7 +384,19 @@ export default function LoginPage() {
             </div>
           </div>
 
-         
+          {/* Google Sign In Button */}
+          <div className="px-8 pb-4">
+            <div id="googleSignInButton" className="flex justify-center"></div>
+            <div className="relative my-6">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-300"></div>
+              </div>
+              <div className="relative flex justify-center text-xs">
+                <span className="px-3 bg-white text-gray-500">or sign in with email</span>
+              </div>
+            </div>
+          </div>
+
           {/* Decorative divider */}
           <div className="relative px-6">
             <div className="absolute inset-0 flex items-center">
@@ -436,4 +568,11 @@ export default function LoginPage() {
       </div>
     </div>
   );
+}
+
+// Add TypeScript declaration for Google API
+declare global {
+  interface Window {
+    google: any;
+  }
 }

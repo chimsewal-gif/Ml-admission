@@ -2,7 +2,12 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { FileText, Plus, Trash2, Edit3, Save, ArrowRight, AlertCircle, CheckCircle, X, Sparkles, Brain, TrendingUp, Shield, Loader2 } from 'lucide-react';
+import { 
+  FileText, Plus, Trash2, Edit3, Save, ArrowRight, AlertCircle, CheckCircle, 
+  X, Sparkles, Brain, TrendingUp, Shield, Loader2, Search, ChevronDown, 
+  BookOpen, Award, Target, Zap, BarChart3, Star, GraduationCap
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const API_BASE_URL = 'http://127.0.0.1:8000/api';
 
@@ -34,7 +39,18 @@ const MSCE_SUBJECTS = [
   'French', 'German', 'Portuguese', 'Arabic'
 ];
 
-const MSCE_GRADES = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'U'];
+const MSCE_GRADES = [
+  { value: '1', label: '1', description: 'Excellent', points: 1, color: 'bg-green-100 text-green-700' },
+  { value: '2', label: '2', description: 'Very Good', points: 2, color: 'bg-green-100 text-green-700' },
+  { value: '3', label: '3', description: 'Good', points: 3, color: 'bg-blue-100 text-blue-700' },
+  { value: '4', label: '4', description: 'Credit', points: 4, color: 'bg-blue-100 text-blue-700' },
+  { value: '5', label: '5', description: 'Credit', points: 5, color: 'bg-yellow-100 text-yellow-700' },
+  { value: '6', label: '6', description: 'Pass', points: 6, color: 'bg-yellow-100 text-yellow-700' },
+  { value: '7', label: '7', description: 'Pass', points: 7, color: 'bg-orange-100 text-orange-700' },
+  { value: '8', label: '8', description: 'Weak Pass', points: 8, color: 'bg-orange-100 text-orange-700' },
+  { value: '9', label: '9', description: 'Fail', points: 9, color: 'bg-red-100 text-red-700' },
+  { value: 'U', label: 'U', description: 'Ungraded', points: 10, color: 'bg-red-100 text-red-700' }
+];
 
 interface Toast {
   id: number;
@@ -42,17 +58,229 @@ interface Toast {
   type: 'success' | 'error' | 'info';
 }
 
+// Custom Styled Select Component for Subjects
+const StyledSubjectSelect = ({ 
+  value, 
+  onChange, 
+  options, 
+  placeholder,
+  disabled 
+}: { 
+  value: string; 
+  onChange: (value: string) => void; 
+  options: string[];
+  placeholder: string;
+  disabled?: boolean;
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const filteredOptions = options.filter(subject =>
+    subject.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+        setSearchTerm("");
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (isOpen && searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, [isOpen]);
+
+  const handleSelect = (subject: string) => {
+    onChange(subject);
+    setIsOpen(false);
+    setSearchTerm("");
+  };
+
+  return (
+    <div ref={dropdownRef} className="relative w-full">
+      <button
+        type="button"
+        onClick={() => !disabled && setIsOpen(!isOpen)}
+        disabled={disabled}
+        className={`w-full px-4 py-2.5 text-left bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 flex items-center justify-between gap-2 transition-all ${
+          !disabled ? 'hover:border-green-300 cursor-pointer' : 'opacity-50 cursor-not-allowed'
+        }`}
+      >
+        <span className={`truncate ${value ? 'text-gray-800' : 'text-gray-400'}`}>
+          {value || placeholder}
+        </span>
+        <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      <AnimatePresence>
+        {isOpen && !disabled && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.15 }}
+            className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden"
+          >
+            <div className="p-2 border-b border-gray-100 bg-gray-50">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  placeholder="Search subjects..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-md focus:outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500 bg-white"
+                />
+              </div>
+            </div>
+            <div className="max-h-60 overflow-y-auto">
+              {filteredOptions.length === 0 ? (
+                <div className="p-4 text-center text-gray-400 text-sm">
+                  No subjects found
+                </div>
+              ) : (
+                filteredOptions.map((subject) => (
+                  <button
+                    key={subject}
+                    onClick={() => handleSelect(subject)}
+                    className={`w-full px-3 py-2 text-left hover:bg-gray-50 transition-all flex items-center justify-between ${
+                      value === subject ? 'bg-green-50' : ''
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <BookOpen className="w-4 h-4 text-green-500" />
+                      <span className={`text-sm ${value === subject ? 'text-green-700 font-medium' : 'text-gray-700'}`}>
+                        {subject}
+                      </span>
+                    </div>
+                    {value === subject && <CheckCircle className="w-4 h-4 text-green-600" />}
+                  </button>
+                ))
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
+// Custom Styled Select Component for Grades
+const StyledGradeSelect = ({ 
+  value, 
+  onChange, 
+  options, 
+  placeholder,
+  disabled 
+}: { 
+  value: string; 
+  onChange: (value: string) => void; 
+  options: typeof MSCE_GRADES;
+  placeholder: string;
+  disabled?: boolean;
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const selectedGrade = options.find(g => g.value === value);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleSelect = (gradeValue: string) => {
+    onChange(gradeValue);
+    setIsOpen(false);
+  };
+
+  return (
+    <div ref={dropdownRef} className="relative w-full">
+      <button
+        type="button"
+        onClick={() => !disabled && setIsOpen(!isOpen)}
+        disabled={disabled}
+        className={`w-full px-4 py-2.5 text-left bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 flex items-center justify-between gap-2 transition-all ${
+          !disabled ? 'hover:border-green-300 cursor-pointer' : 'opacity-50 cursor-not-allowed'
+        }`}
+      >
+        <div className="flex items-center gap-2">
+          {selectedGrade ? (
+            <>
+              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${selectedGrade.color}`}>
+                {selectedGrade.label}
+              </span>
+              <span className="text-gray-600 text-sm">- {selectedGrade.description}</span>
+            </>
+          ) : (
+            <span className="text-gray-400">{placeholder}</span>
+          )}
+        </div>
+        <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      <AnimatePresence>
+        {isOpen && !disabled && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.15 }}
+            className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden"
+          >
+            <div className="max-h-60 overflow-y-auto">
+              {options.map((grade) => (
+                <button
+                  key={grade.value}
+                  onClick={() => handleSelect(grade.value)}
+                  className={`w-full px-3 py-2 text-left hover:bg-gray-50 transition-all flex items-center justify-between ${
+                    value === grade.value ? 'bg-green-50' : ''
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${grade.color}`}>
+                      {grade.label}
+                    </span>
+                    <span className="text-sm text-gray-600">- {grade.description}</span>
+                    <span className="text-xs text-gray-400">({grade.points} point{grade.points !== 1 ? 's' : ''})</span>
+                  </div>
+                  {value === grade.value && <CheckCircle className="w-4 h-4 text-green-600" />}
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
 export default function MSCEResultsPage() {
   const router = useRouter();
   
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [subjectRecords, setSubjectRecords] = useState<SubjectRecord[]>([]);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  
+  // Form state
+  const [selectedSubject, setSelectedSubject] = useState('');
+  const [selectedGrade, setSelectedGrade] = useState('');
   
   // ML Prediction state
   const [isPredicting, setIsPredicting] = useState(false);
@@ -70,7 +298,7 @@ export default function MSCEResultsPage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteIndex, setDeleteIndex] = useState<number | null>(null);
   
-  // Form state for editing
+  // Edit form state
   const [editForm, setEditForm] = useState({
     subject: '',
     grade: '',
@@ -138,7 +366,7 @@ export default function MSCEResultsPage() {
     }
   }, [token]);
 
-  // Auto-predict when subjects change and we have enough subjects
+  // Auto-predict when subjects change
   useEffect(() => {
     if (autoPredictEnabled && subjectRecords.length >= 6 && !isPredicting && !showPrediction) {
       const timer = setTimeout(() => {
@@ -148,12 +376,11 @@ export default function MSCEResultsPage() {
     }
   }, [subjectRecords, autoPredictEnabled]);
 
-  // Popup timer: show after 7 seconds (only once, and only if not already dismissed)
+  // Popup timer
   useEffect(() => {
     popupTimerRef.current = setTimeout(() => {
       setShowAIPopup(true);
     }, 7000);
-
     return () => {
       if (popupTimerRef.current) clearTimeout(popupTimerRef.current);
     };
@@ -162,14 +389,12 @@ export default function MSCEResultsPage() {
   const fetchSubjectRecords = async () => {
     try {
       setLoading(true);
-      setError(null);
       const data = await authFetch('/subject-records');
       const records = data.data || data || [];
       const msceRecords = records.filter((r: any) => r.qualification === QUALIFICATION);
       setSubjectRecords(msceRecords);
     } catch (err: any) {
       console.error('Error fetching subject records:', err);
-      setError(err.message || 'Failed to load subject records');
       if (err.message.includes('authenticated')) {
         router.push('/login');
       }
@@ -312,47 +537,40 @@ export default function MSCEResultsPage() {
   };
 
   const handleAddSubject = async () => {
-    const formSubject = (document.getElementById('addSubject') as HTMLSelectElement)?.value;
-    const formGrade = (document.getElementById('addGrade') as HTMLSelectElement)?.value;
-    
-    if (!formSubject) {
+    if (!selectedSubject) {
       addToast('Please select a subject', 'error');
       return;
     }
-    if (!formGrade) {
+    if (!selectedGrade) {
       addToast('Please select a grade', 'error');
       return;
     }
     
-    if (subjectRecords.some(r => r.subject === formSubject)) {
-      addToast(`Subject "${formSubject}" has already been added`, 'error');
+    if (subjectRecords.some(r => r.subject === selectedSubject)) {
+      addToast(`Subject "${selectedSubject}" has already been added`, 'error');
       return;
     }
     
     setSaving(true);
     
     try {
-      const newRecord = await createRecord(formSubject, formGrade);
+      const newRecord = await createRecord(selectedSubject, selectedGrade);
       
       const newSubjectRecord: SubjectRecord = {
         id: newRecord.id,
         qualification: QUALIFICATION,
         centre_number: '',
         exam_number: '',
-        subject: formSubject,
-        grade: formGrade,
+        subject: selectedSubject,
+        grade: selectedGrade,
         year: new Date().getFullYear().toString(),
       };
       
-      const updatedRecords = [...subjectRecords, newSubjectRecord];
-      setSubjectRecords(updatedRecords);
+      setSubjectRecords(prev => [...prev, newSubjectRecord]);
       setMlPrediction(null);
       setShowPrediction(false);
-      
-      const subjectSelect = document.getElementById('addSubject') as HTMLSelectElement;
-      const gradeSelect = document.getElementById('addGrade') as HTMLSelectElement;
-      if (subjectSelect) subjectSelect.value = '';
-      if (gradeSelect) gradeSelect.value = '';
+      setSelectedSubject('');
+      setSelectedGrade('');
       
       addToast('Subject added successfully!', 'success');
     } catch (err: any) {
@@ -472,14 +690,12 @@ export default function MSCEResultsPage() {
   };
 
   const getGradeDescription = (grade: string) => {
-    const descriptions: Record<string, string> = {
-      '1': 'Excellent', '2': 'Very Good', '3': 'Good', '4': 'Credit', '5': 'Credit',
-      '6': 'Pass', '7': 'Pass', '8': 'Weak Pass', '9': 'Fail', 'U': 'Ungraded'
-    };
-    return descriptions[grade] || '';
+    const gradeInfo = MSCE_GRADES.find(g => g.value === grade);
+    return gradeInfo?.description || '';
   };
 
   const getAdmissionPoint = (grade: string): string => {
+    const gradeInfo = MSCE_GRADES.find(g => g.value === grade);
     if (grade === '1') return 'A* (1)';
     if (grade === '2') return 'A (2)';
     if (grade === '3') return 'B (3)';
@@ -513,12 +729,10 @@ export default function MSCEResultsPage() {
     addToast(newValue ? 'Auto-prediction enabled' : 'Auto-prediction disabled', 'info');
   };
 
-  // Scroll to prediction card and close popup
   const handleViewPrediction = () => {
     if (predictionCardRef.current) {
       predictionCardRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
     } else if (subjectRecords.length >= 6) {
-      // If card not yet rendered, force prediction and then scroll
       getMLPredictionAutomatically();
       setTimeout(() => {
         if (predictionCardRef.current) {
@@ -580,79 +794,86 @@ export default function MSCEResultsPage() {
           ))}
         </div>
 
-        {/* AI Popup (appears after 7 seconds) */}
-        {showAIPopup && (
-          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full animate-fade-in-up">
-              <div className="p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-2">
-                    <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
-                      <Brain className="w-5 h-5 text-purple-600" />
-                    </div>
-                    <h3 className="text-lg font-semibold text-gray-800">AI Admission Prediction</h3>
-                  </div>
-                  <button
-                    onClick={handleCancelPopup}
-                    className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
-                  >
-                    <X className="w-5 h-5 text-gray-500" />
-                  </button>
-                </div>
-                
-                <div className="space-y-4">
-                  <p className="text-gray-600">
-                    Our AI model can analyze your MSCE results and predict your chances of admission to various programs.
-                  </p>
-                  
-                  {hasEnoughSubjects ? (
-                    <div className="bg-purple-50 rounded-lg p-3">
-                      <div className="flex items-center gap-2 text-purple-700">
-                        <Sparkles className="w-4 h-4" />
-                        <span className="text-sm font-medium">You have {subjectRecords.length} subjects – ready for analysis!</span>
+        {/* AI Popup */}
+        <AnimatePresence>
+          {showAIPopup && (
+            <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className="bg-white rounded-xl shadow-2xl max-w-md w-full"
+              >
+                <div className="p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
+                        <Brain className="w-5 h-5 text-purple-600" />
                       </div>
+                      <h3 className="text-lg font-semibold text-gray-800">AI Admission Prediction</h3>
                     </div>
-                  ) : (
-                    <div className="bg-yellow-50 rounded-lg p-3">
-                      <div className="flex items-center gap-2 text-yellow-700">
-                        <AlertCircle className="w-4 h-4" />
-                        <span className="text-sm font-medium">Add {6 - subjectRecords.length} more subject(s) to enable AI prediction.</span>
-                      </div>
-                    </div>
-                  )}
-                  
-                  <div className="flex gap-3 pt-2">
                     <button
                       onClick={handleCancelPopup}
-                      className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                      className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
                     >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={handleViewPrediction}
-                      disabled={!hasEnoughSubjects}
-                      className={`flex-1 px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition-colors ${
-                        hasEnoughSubjects
-                          ? 'bg-purple-600 hover:bg-purple-700 text-white'
-                          : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                      }`}
-                    >
-                      <Brain className="w-4 h-4" />
-                      View Prediction
+                      <X className="w-5 h-5 text-gray-500" />
                     </button>
                   </div>
+                  
+                  <div className="space-y-4">
+                    <p className="text-gray-600">
+                      Our AI model can analyze your MSCE results and predict your chances of admission to various programs.
+                    </p>
+                    
+                    {hasEnoughSubjects ? (
+                      <div className="bg-purple-50 rounded-lg p-3">
+                        <div className="flex items-center gap-2 text-purple-700">
+                          <Sparkles className="w-4 h-4" />
+                          <span className="text-sm font-medium">You have {subjectRecords.length} subjects – ready for analysis!</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-yellow-50 rounded-lg p-3">
+                        <div className="flex items-center gap-2 text-yellow-700">
+                          <AlertCircle className="w-4 h-4" />
+                          <span className="text-sm font-medium">Add {6 - subjectRecords.length} more subject(s) to enable AI prediction.</span>
+                        </div>
+                      </div>
+                    )}
+                    
+                    <div className="flex gap-3 pt-2">
+                      <button
+                        onClick={handleCancelPopup}
+                        className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleViewPrediction}
+                        disabled={!hasEnoughSubjects}
+                        className={`flex-1 px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition-colors ${
+                          hasEnoughSubjects
+                            ? 'bg-purple-600 hover:bg-purple-700 text-white'
+                            : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        }`}
+                      >
+                        <Brain className="w-4 h-4" />
+                        View Prediction
+                      </button>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              </motion.div>
             </div>
-          </div>
-        )}
+          )}
+        </AnimatePresence>
 
         {/* Main Card */}
         <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
           <div className="border-b border-gray-200 p-6">
             <div className="flex items-center justify-between flex-wrap gap-3 mb-2">
               <div className="flex items-center gap-3">
-                <FileText className="w-6 h-6 text-gray-700" />
+                <GraduationCap className="w-6 h-6 text-gray-700" />
                 <h2 className="text-xl font-semibold text-gray-800">MSCE RESULTS</h2>
               </div>
               <div className="flex items-center gap-2">
@@ -712,9 +933,14 @@ export default function MSCEResultsPage() {
               </div>
             )}
 
-            {/* ML Prediction Card - ref attached for scrolling */}
+            {/* ML Prediction Card */}
             {hasEnoughSubjects && showPrediction && mlPrediction && (
-              <div ref={predictionCardRef} className="mb-6 bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-xl p-5">
+              <motion.div
+                ref={predictionCardRef}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mb-6 bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-xl p-5"
+              >
                 <div className="flex items-start gap-4">
                   <div className="flex-shrink-0">
                     <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
@@ -729,7 +955,7 @@ export default function MSCEResultsPage() {
                     <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
                       <h3 className="font-semibold text-gray-800 flex items-center gap-2">
                         <Sparkles className="w-4 h-4 text-purple-600" />
-                        AI Admission Prediction (Auto-Updating)
+                        AI Admission Prediction
                       </h3>
                       <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full flex items-center gap-1">
                         <Shield className="w-3 h-3" />
@@ -774,33 +1000,7 @@ export default function MSCEResultsPage() {
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
-
-            {/* Manual Prediction Button */}
-            {!autoPredictEnabled && hasEnoughSubjects && !showPrediction && (
-              <div className="mb-6">
-                <button
-                  onClick={getMLPrediction}
-                  disabled={isPredicting}
-                  className="w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:from-purple-700 hover:to-indigo-700 flex items-center justify-center gap-2 font-medium disabled:opacity-50"
-                >
-                  {isPredicting ? (
-                    <>
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                      Analyzing with AI...
-                    </>
-                  ) : (
-                    <>
-                      <Brain className="w-5 h-5" />
-                      Get AI Admission Prediction
-                    </>
-                  )}
-                </button>
-                <p className="text-xs text-gray-500 text-center mt-2">
-                  AI analyzes your MSCE results to predict admission chances
-                </p>
-              </div>
+              </motion.div>
             )}
 
             {/* Add Subject Form */}
@@ -809,38 +1009,30 @@ export default function MSCEResultsPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Subject</label>
-                  <select
-                    id="addSubject"
+                  <StyledSubjectSelect
+                    value={selectedSubject}
+                    onChange={setSelectedSubject}
+                    options={MSCE_SUBJECTS}
+                    placeholder="Select a subject"
                     disabled={saving}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white disabled:bg-gray-100"
-                  >
-                    <option value="">Select Subject</option>
-                    {MSCE_SUBJECTS.map(subject => (
-                      <option key={subject} value={subject}>{subject}</option>
-                    ))}
-                  </select>
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Grade</label>
-                  <select
-                    id="addGrade"
+                  <StyledGradeSelect
+                    value={selectedGrade}
+                    onChange={setSelectedGrade}
+                    options={MSCE_GRADES}
+                    placeholder="Select grade"
                     disabled={saving}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white disabled:bg-gray-100"
-                  >
-                    <option value="">Select Grade</option>
-                    {MSCE_GRADES.map(grade => (
-                      <option key={grade} value={grade}>
-                        {grade} - {getGradeDescription(grade)}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </div>
               </div>
               <div className="flex gap-3 mt-4">
                 <button
                   onClick={handleAddSubject}
-                  disabled={saving}
-                  className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 disabled:opacity-50"
+                  disabled={saving || !selectedSubject || !selectedGrade}
+                  className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {saving ? (
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
@@ -879,37 +1071,40 @@ export default function MSCEResultsPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
-                      {subjectRecords.map((record, index) => (
-                        <tr key={record.id || index} className="hover:bg-gray-50">
-                          <td className="px-4 py-3 text-gray-800 font-medium">{record.subject}</td>
-                          <td className="px-4 py-3">
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                              {record.grade}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-gray-500 text-sm">{getAdmissionPoint(record.grade)}</td>
-                          <td className="px-4 py-3 text-center">
-                            <div className="flex justify-center gap-2">
-                              <button
-                                onClick={() => openEditModal(index)}
-                                disabled={saving}
-                                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg disabled:opacity-50"
-                                title="Edit"
-                              >
-                                <Edit3 className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => openDeleteModal(index)}
-                                disabled={saving}
-                                className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-50"
-                                title="Delete"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                      {subjectRecords.map((record, index) => {
+                        const gradeInfo = MSCE_GRADES.find(g => g.value === record.grade);
+                        return (
+                          <tr key={record.id || index} className="hover:bg-gray-50">
+                            <td className="px-4 py-3 text-gray-800 font-medium">{record.subject}</td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${gradeInfo?.color || 'bg-gray-100 text-gray-800'}`}>
+                                {record.grade}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-gray-500 text-sm">{getAdmissionPoint(record.grade)}</td>
+                            <td className="px-4 py-3 text-center">
+                              <div className="flex justify-center gap-2">
+                                <button
+                                  onClick={() => openEditModal(index)}
+                                  disabled={saving}
+                                  className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg disabled:opacity-50"
+                                  title="Edit"
+                                >
+                                  <Edit3 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => openDeleteModal(index)}
+                                  disabled={saving}
+                                  className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-50"
+                                  title="Delete"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                   {hasEnoughSubjects && (
@@ -939,18 +1134,13 @@ export default function MSCEResultsPage() {
                 <ArrowRight className="w-5 h-5" />
               </button>
             </div>
-            
-            {!hasEnoughSubjects && subjectRecords.length > 0 && (
-              <p className="text-sm text-red-500 text-center mt-4">
-                You need {6 - subjectRecords.length} more subject(s) to proceed
-              </p>
-            )}
           </div>
         </div>
 
         {/* Help Text */}
         <div className="text-center mt-6">
-          <p className="text-gray-500 text-sm">
+          <p className="text-gray-500 text-sm flex items-center justify-center gap-2">
+            <Zap className="w-4 h-4 text-green-500" />
             Add all your MSCE subjects and results. You need at least 6 subjects to proceed.
           </p>
           <p className="text-gray-400 text-xs mt-1">
@@ -960,144 +1150,150 @@ export default function MSCEResultsPage() {
       </div>
 
       {/* Edit Modal */}
-      {showEditModal && (
-        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
-            <div className="flex items-center justify-between p-6 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-800">Edit Subject Result</h3>
-              <button
-                onClick={() => {
-                  setShowEditModal(false);
-                  setEditingIndex(null);
-                  setEditForm({ subject: '', grade: '', id: null });
-                }}
-                className="p-1 hover:bg-gray-100 rounded-lg"
-              >
-                <X className="w-5 h-5 text-gray-500" />
-              </button>
-            </div>
-            
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Subject</label>
-                <select
-                  value={editForm.subject}
-                  onChange={(e) => setEditForm(prev => ({ ...prev, subject: e.target.value }))}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white"
+      <AnimatePresence>
+        {showEditModal && (
+          <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-white rounded-xl shadow-xl max-w-md w-full"
+            >
+              <div className="flex items-center justify-between p-6 border-b border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-800">Edit Subject Result</h3>
+                <button
+                  onClick={() => {
+                    setShowEditModal(false);
+                    setEditingIndex(null);
+                    setEditForm({ subject: '', grade: '', id: null });
+                  }}
+                  className="p-1 hover:bg-gray-100 rounded-lg"
                 >
-                  <option value="">Select Subject</option>
-                  {MSCE_SUBJECTS.map(subject => (
-                    <option key={subject} value={subject}>{subject}</option>
-                  ))}
-                </select>
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
               </div>
               
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Grade</label>
-                <select
-                  value={editForm.grade}
-                  onChange={(e) => setEditForm(prev => ({ ...prev, grade: e.target.value }))}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white"
-                >
-                  <option value="">Select Grade</option>
-                  {MSCE_GRADES.map(grade => (
-                    <option key={grade} value={grade}>
-                      {grade} - {getGradeDescription(grade)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            
-            <div className="flex gap-3 p-6 pt-0">
-              <button
-                onClick={() => {
-                  setShowEditModal(false);
-                  setEditingIndex(null);
-                  setEditForm({ subject: '', grade: '', id: null });
-                }}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleUpdateSubject}
-                disabled={saving}
-                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {saving ? (
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                ) : (
-                  <>
-                    <Save className="w-4 h-4" />
-                    Update
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Confirmation Modal */}
-      {showDeleteModal && (
-        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
-            <div className="flex items-center justify-between p-6 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-800">Confirm Delete</h3>
-              <button
-                onClick={() => {
-                  setShowDeleteModal(false);
-                  setDeleteIndex(null);
-                }}
-                className="p-1 hover:bg-gray-100 rounded-lg"
-              >
-                <X className="w-5 h-5 text-gray-500" />
-              </button>
-            </div>
-            
-            <div className="p-6">
-              <div className="flex items-center justify-center mb-4">
-                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center">
-                  <Trash2 className="w-8 h-8 text-red-600" />
+              <div className="p-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Subject</label>
+                  <StyledSubjectSelect
+                    value={editForm.subject}
+                    onChange={(val) => setEditForm(prev => ({ ...prev, subject: val }))}
+                    options={MSCE_SUBJECTS}
+                    placeholder="Select subject"
+                    disabled={saving}
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Grade</label>
+                  <StyledGradeSelect
+                    value={editForm.grade}
+                    onChange={(val) => setEditForm(prev => ({ ...prev, grade: val }))}
+                    options={MSCE_GRADES}
+                    placeholder="Select grade"
+                    disabled={saving}
+                  />
                 </div>
               </div>
-              <p className="text-center text-gray-700 mb-2">
-                Are you sure you want to remove this subject?
-              </p>
-              <p className="text-center text-gray-500 text-sm">
-                This action cannot be undone.
-              </p>
-            </div>
-            
-            <div className="flex gap-3 p-6 pt-0">
-              <button
-                onClick={() => {
-                  setShowDeleteModal(false);
-                  setDeleteIndex(null);
-                }}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmDelete}
-                disabled={saving}
-                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {saving ? (
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                ) : (
-                  <>
-                    <Trash2 className="w-4 h-4" />
-                    Delete
-                  </>
-                )}
-              </button>
-            </div>
+              
+              <div className="flex gap-3 p-6 pt-0">
+                <button
+                  onClick={() => {
+                    setShowEditModal(false);
+                    setEditingIndex(null);
+                    setEditForm({ subject: '', grade: '', id: null });
+                  }}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleUpdateSubject}
+                  disabled={saving}
+                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {saving ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      Update
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
+
+      {/* Delete Confirmation Modal */}
+      <AnimatePresence>
+        {showDeleteModal && (
+          <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-white rounded-xl shadow-xl max-w-md w-full"
+            >
+              <div className="flex items-center justify-between p-6 border-b border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-800">Confirm Delete</h3>
+                <button
+                  onClick={() => {
+                    setShowDeleteModal(false);
+                    setDeleteIndex(null);
+                  }}
+                  className="p-1 hover:bg-gray-100 rounded-lg"
+                >
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+              
+              <div className="p-6">
+                <div className="flex items-center justify-center mb-4">
+                  <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center">
+                    <Trash2 className="w-8 h-8 text-red-600" />
+                  </div>
+                </div>
+                <p className="text-center text-gray-700 mb-2">
+                  Are you sure you want to remove this subject?
+                </p>
+                <p className="text-center text-gray-500 text-sm">
+                  This action cannot be undone.
+                </p>
+              </div>
+              
+              <div className="flex gap-3 p-6 pt-0">
+                <button
+                  onClick={() => {
+                    setShowDeleteModal(false);
+                    setDeleteIndex(null);
+                  }}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDelete}
+                  disabled={saving}
+                  className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {saving ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4" />
+                      Delete
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

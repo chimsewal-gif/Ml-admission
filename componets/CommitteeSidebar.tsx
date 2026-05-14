@@ -14,14 +14,17 @@ import {
   Menu,
   X,
   UserCheck,
+  User2Icon
 } from 'lucide-react';
 
 const committeeNavItems = [
   { label: 'Dashboard', href: '/commitee', icon: Home },
   { label: 'Applications', href: '/commitee/applications', icon: FileText },
+  { label: 'All verifications', href: '/commitee/eligibility', icon: User2Icon },
   { label: 'Evaluations', href: '/commitee/evaluations', icon: Star },
   { label: 'Reports', href: '/commitee/reports', icon: BarChart3 },
   { label: 'Committee Members', href: '/commitee/members', icon: UserCheck },
+  
   { label: 'Settings', href: '/commitee/settings', icon: Settings },
 ];
 

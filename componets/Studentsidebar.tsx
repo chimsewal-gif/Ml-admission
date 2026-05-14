@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
@@ -24,7 +24,8 @@ import {
   BookMarked,
   Briefcase,
   Award,
-  ClipboardList
+  ClipboardList,
+  Send
 } from 'lucide-react';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000/api';
@@ -40,7 +41,7 @@ const baseNavItems = [
   { label: 'Programme Choice', href: '/application/program-selection', icon: School, required: true, order: 6 },
   { label: 'Education', href: '/application/education', icon: GraduationCap, required: true, order: 7 },
   { label: 'Teaching Subjects', href: '/application/teacher-subjects', icon: School, required: false, order: 8 },
-  { label: 'Documents', href: '/application/documents', icon: FileText, required: true, order: 9 }, // Made required
+  { label: 'Documents', href: '/application/documents', icon: FileText, required: true, order: 9 },
 ];
 
 const postgraduateNavItems = [
@@ -75,11 +76,18 @@ const safeLocalStorage = {
   }
 };
 
+// Statuses that should lock the application (no further edits allowed)
+const LOCKED_STATUSES = ['submitted', 'approved', 'accepted', 'rejected', 'withdrawn', 'under_review', 'reviewed'];
+
 export default function StudentSidebar() {
   const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
   const [completedSections, setCompletedSections] = useState<string[]>([]);
-  const [applicationSubmitted, setApplicationSubmitted] = useState(false);
+  const [completedSectionsCount, setCompletedSectionsCount] = useState(0);
+  const [overallProgress, setOverallProgress] = useState(0);
+  const [applicationLocked, setApplicationLocked] = useState(false);
+  const [applicationStatus, setApplicationStatus] = useState<string>('');
+  const [referenceNumber, setReferenceNumber] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [feeStatus, setFeeStatus] = useState<string>('pending');
   const [hasDepositSlip, setHasDepositSlip] = useState(false);
@@ -87,91 +95,167 @@ export default function StudentSidebar() {
   const [selectedApplicationType, setSelectedApplicationType] = useState<string>('');
   const [selectedStudyRoute, setSelectedStudyRoute] = useState<string>('');
   const [isPostgraduate, setIsPostgraduate] = useState(false);
+  
+  // Use ref to prevent infinite loops
+  const isMounted = useRef(true);
+  const isCalculating = useRef(false);
 
-  // Listen for storage events to update completion status in real-time
-  useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      console.log(`Storage event: ${e.key} = ${e.newValue}`);
-      
-      // Handle teaching subjects
-      if (e.key === 'teachingSubjectsCompleted' || e.key === 'teachingSubjectsSaved') {
-        const teachingFlag = safeLocalStorage.getItem('teachingSubjectsCompleted');
-        if (teachingFlag === 'true') {
-          console.log('Teaching subjects completed detected from storage event');
-          if (!completedSections.includes('Teaching Subjects')) {
-            setCompletedSections(prev => [...prev, 'Teaching Subjects']);
-          }
-        } else {
-          setCompletedSections(prev => prev.filter(s => s !== 'Teaching Subjects'));
-        }
-      }
-      
-      // Handle documents completion - FIXED
-      if (e.key === 'documentsCompleted' || e.key === 'documentsSaved') {
-        console.log('Documents event detected:', e.key, e.newValue);
-        const documentsFlag = safeLocalStorage.getItem('documentsCompleted');
-        const documentsSaved = safeLocalStorage.getItem('documentsSaved');
+  // Check if application is locked (submitted, approved, rejected, etc.)
+  const checkApplicationStatus = useCallback(async () => {
+    const token = getToken();
+    if (!token) return false;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/submit/status/`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await response.json();
+      if (data.success && data.data) {
+        const status = data.data.status || '';
+        const isLocked = LOCKED_STATUSES.includes(status);
         
-        if (documentsFlag === 'true' || documentsSaved === 'true') {
-          console.log('Documents completed detected from storage event');
-          if (!completedSections.includes('Documents')) {
-            setCompletedSections(prev => [...prev, 'Documents']);
+        if (isMounted.current) {
+          setApplicationLocked(isLocked);
+          setApplicationStatus(status);
+          if (data.data.reference_number) {
+            setReferenceNumber(data.data.reference_number);
           }
-        } else {
-          console.log('Documents not completed from storage event');
-          setCompletedSections(prev => prev.filter(s => s !== 'Documents'));
+        }
+        return isLocked;
+      }
+    } catch (error) {
+      console.error('Error checking application status:', error);
+    }
+    return false;
+  }, []);
+
+  // Get status display text
+  const getStatusDisplayText = () => {
+    switch (applicationStatus) {
+      case 'submitted': return 'Submitted - Under Review';
+      case 'under_review': return 'Under Review';
+      case 'reviewed': return 'Reviewed';
+      case 'approved': return 'Approved!';
+      case 'accepted': return 'Accepted!';
+      case 'rejected': return 'Rejected';
+      case 'withdrawn': return 'Withdrawn';
+      default: return 'Locked';
+    }
+  };
+
+  // Calculate progress consistently (same as dashboard)
+  const calculateProgress = useCallback(() => {
+    if (isCalculating.current) return 0;
+    isCalculating.current = true;
+    
+    try {
+      // Get completion status from localStorage
+      const profileFlag = safeLocalStorage.getItem('profileCompleted') === 'true';
+      const nextOfKinFlag = safeLocalStorage.getItem('nextOfKinCompleted') === 'true';
+      const appTypeFlag = safeLocalStorage.getItem('applicationTypeCompleted') === 'true';
+      const studyRouteFlag = safeLocalStorage.getItem('studyRouteCompleted') === 'true';
+      const msceFlag = safeLocalStorage.getItem('msceResultsCompleted') === 'true';
+      const programmeFlag = safeLocalStorage.getItem('programmeChoiceCompleted') === 'true';
+      const educationFlag = safeLocalStorage.getItem('educationCompleted') === 'true';
+      
+      // Documents check
+      let documentsFlag = safeLocalStorage.getItem('documentsCompleted') === 'true' || 
+                          safeLocalStorage.getItem('documentsSaved') === 'true';
+      if (!documentsFlag) {
+        const storedDocs = safeLocalStorage.getItem('application_documents');
+        if (storedDocs) {
+          try {
+            const docs = JSON.parse(storedDocs);
+            if (docs && docs.length > 0) documentsFlag = true;
+          } catch (e) {}
         }
       }
       
-      // Handle other completion flags
-      const completionFlags = [
-        'profileCompleted', 'nextOfKinCompleted', 'applicationTypeCompleted',
-        'studyRouteCompleted', 'msceResultsCompleted', 'programmeChoiceCompleted',
-        'educationCompleted', 'applicationFeesCompleted'
-      ];
+      const paymentFlag = safeLocalStorage.getItem('applicationFeesCompleted') === 'true';
       
-      if (completionFlags.includes(e.key || '')) {
-        // Refresh all completion status
-        refreshCompletionStatus();
+      // Count completed sections (ONLY the 9 REQUIRED sections)
+      let count = 0;
+      if (profileFlag) count++;
+      if (nextOfKinFlag) count++;
+      if (appTypeFlag) count++;
+      if (studyRouteFlag) count++;
+      if (msceFlag) count++;
+      if (programmeFlag) count++;
+      if (educationFlag) count++;
+      if (documentsFlag) count++;
+      if (paymentFlag) count++;
+      
+      const TOTAL_REQUIRED_SECTIONS = 9;
+      const percentage = TOTAL_REQUIRED_SECTIONS > 0 
+        ? Math.round((count / TOTAL_REQUIRED_SECTIONS) * 100) 
+        : 0;
+      
+      if (isMounted.current) {
+        setCompletedSectionsCount(count);
+        setOverallProgress(percentage);
       }
-    };
+      
+      return percentage;
+    } finally {
+      isCalculating.current = false;
+    }
+  }, []);
 
-    const refreshCompletionStatus = () => {
-      const localStorageCompleted = checkLocalStorageCompletion();
-      setCompletedSections(prev => {
-        const newCompleted = [...new Set([...prev, ...localStorageCompleted])];
-        return newCompleted;
-      });
-    };
+  // Function to check completion from localStorage
+  const checkLocalStorageCompletion = useCallback(() => {
+    const completed: string[] = [];
+    
+    const appType = safeLocalStorage.getItem('userApplicationType');
+    const appTypeCompleted = safeLocalStorage.getItem('applicationTypeCompleted');
+    if (appType || appTypeCompleted === 'true') {
+      completed.push('Select Application Type');
+      const typeName = safeLocalStorage.getItem('userApplicationTypeName');
+      if (isMounted.current) {
+        setSelectedApplicationType(typeName || appType || '');
+      }
+    }
+    
+    const studyRoute = safeLocalStorage.getItem('userStudyRoute');
+    const studyRouteCompleted = safeLocalStorage.getItem('studyRouteCompleted');
+    if (studyRoute || studyRouteCompleted === 'true') {
+      completed.push('Select Study Route');
+      const routeName = safeLocalStorage.getItem('userStudyRouteName');
+      if (isMounted.current) {
+        setSelectedStudyRoute(routeName || studyRoute || '');
+      }
+    }
+    
+    const teachingFlag = safeLocalStorage.getItem('teachingSubjectsCompleted');
+    if (teachingFlag === 'true') {
+      completed.push('Teaching Subjects');
+    }
+    
+    const documentsFlag = safeLocalStorage.getItem('documentsCompleted');
+    const documentsSaved = safeLocalStorage.getItem('documentsSaved');
+    
+    if (documentsFlag === 'true' || documentsSaved === 'true') {
+      completed.push('Documents');
+    } else {
+      const storedDocs = safeLocalStorage.getItem('application_documents');
+      if (storedDocs) {
+        try {
+          const docs = JSON.parse(storedDocs);
+          if (docs && docs.length > 0) {
+            completed.push('Documents');
+          }
+        } catch (e) {}
+      }
+    }
+    
+    return completed;
+  }, []);
 
-    window.addEventListener('storage', handleStorageChange);
-    
-    // Also listen for custom events from pages
-    const handleCustomEvents = () => {
-      console.log('Custom event received, refreshing completion status');
-      const localStorageCompleted = checkLocalStorageCompletion();
-      setCompletedSections(prev => {
-        const newCompleted = [...new Set([...prev, ...localStorageCompleted])];
-        return newCompleted;
-      });
-    };
-    
-    window.addEventListener('documentsCompleted', handleCustomEvents);
-    window.addEventListener('teachingSubjectsSaved', handleCustomEvents);
-    
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('documentsCompleted', handleCustomEvents);
-      window.removeEventListener('teachingSubjectsSaved', handleCustomEvents);
-    };
-  }, [completedSections]);
-
-  const getNavItems = () => {
+  const getNavItems = useCallback(() => {
     if (isPostgraduate) {
       return [...baseNavItems, ...postgraduateNavItems, ...commonNavItems].sort((a, b) => a.order - b.order);
     }
     return [...baseNavItems, ...commonNavItems].sort((a, b) => a.order - b.order);
-  };
+  }, [isPostgraduate]);
 
   const studentNavItems = getNavItems();
 
@@ -187,346 +271,113 @@ export default function StudentSidebar() {
       const response = await fetch(url, options);
       const contentType = response.headers.get('content-type');
       if (!contentType || !contentType.includes('application/json')) {
-        console.warn(`Non-JSON response from ${url}:`, contentType);
         return { success: false, data: null, error: 'Invalid response format' };
       }
       const data = await response.json();
       return { success: true, data, error: null };
     } catch (err) {
-      console.error(`Error fetching ${url}:`, err);
       return { success: false, data: null, error: err };
     }
   };
 
-  // Function to check completion from localStorage (safe) - FIXED
-  const checkLocalStorageCompletion = () => {
-    const completed: string[] = [];
-    
-    // Check Application Type
-    const appType = safeLocalStorage.getItem('userApplicationType');
-    const appTypeCompleted = safeLocalStorage.getItem('applicationTypeCompleted');
-    if (appType || appTypeCompleted === 'true') {
-      completed.push('Select Application Type');
-      const typeName = safeLocalStorage.getItem('userApplicationTypeName');
-      setSelectedApplicationType(typeName || appType || '');
-    }
-    
-    // Check Study Route
-    const studyRoute = safeLocalStorage.getItem('userStudyRoute');
-    const studyRouteCompleted = safeLocalStorage.getItem('studyRouteCompleted');
-    if (studyRoute || studyRouteCompleted === 'true') {
-      completed.push('Select Study Route');
-      const routeName = safeLocalStorage.getItem('userStudyRouteName');
-      setSelectedStudyRoute(routeName || studyRoute || '');
-    }
-    
-    // Check Teaching Subjects from localStorage
-    const teachingFlag = safeLocalStorage.getItem('teachingSubjectsCompleted');
-    if (teachingFlag === 'true') {
-      console.log('Teaching subjects found in localStorage check');
-      completed.push('Teaching Subjects');
-    }
-    
-    // Check Documents from localStorage - FIXED
-    const documentsFlag = safeLocalStorage.getItem('documentsCompleted');
-    const documentsSaved = safeLocalStorage.getItem('documentsSaved');
-    console.log('Documents localStorage check - documentsCompleted:', documentsFlag, 'documentsSaved:', documentsSaved);
-    
-    if (documentsFlag === 'true' || documentsSaved === 'true') {
-      console.log('Documents found in localStorage check, adding to completed sections');
-      completed.push('Documents');
-    } else {
-      // Also check if there are any documents stored
-      const storedDocs = safeLocalStorage.getItem('application_documents');
-      if (storedDocs) {
-        try {
-          const docs = JSON.parse(storedDocs);
-          if (docs && docs.length > 0) {
-            console.log('Documents found in application_documents, marking as completed');
-            completed.push('Documents');
-          }
-        } catch (e) {
-          console.error('Error parsing application_documents:', e);
-        }
-      }
-    }
-    
-    return completed;
-  };
-
+  // Initial load effect - runs once
   useEffect(() => {
+    isMounted.current = true;
+    
     const fetchProgress = async () => {
       try {
         const token = getToken();
         if (!token) {
-          setLoading(false);
+          if (isMounted.current) setLoading(false);
           return;
         }
 
-        console.log('🔄 Fetching application progress...');
+        // Check application status (this will lock if status is submitted/approved/rejected/etc)
+        await checkApplicationStatus();
         
-        // First check localStorage for immediate completion status
+        // First check localStorage
         const localStorageCompleted = checkLocalStorageCompletion();
         const completed = [...localStorageCompleted];
-        console.log('Initial localStorage completed sections:', completed);
 
-        // 1. Check if postgraduate
+        // Check if postgraduate
         const appType = safeLocalStorage.getItem('userApplicationType');
         if (appType === 'masters' || appType === 'phd') {
-          setIsPostgraduate(true);
+          if (isMounted.current) setIsPostgraduate(true);
         }
 
-        // 2. Profile
-        const profileResult = await safeFetch(`${API_BASE_URL}/personal-details/`, {
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
-        if (profileResult.success && profileResult.data?.data) {
-          const profileData = profileResult.data.data;
-          if (profileData.first_name && profileData.last_name && profileData.email) {
-            if (!completed.includes('Profile')) completed.push('Profile');
-          }
+        // Calculate initial progress
+        calculateProgress();
+
+        if (isMounted.current) {
+          setCompletedSections(completed);
+          setLoading(false);
         }
-
-        const profileCompleted = safeLocalStorage.getItem('profileCompleted');
-        if (profileCompleted === 'true' && !completed.includes('Profile')) {
-          completed.push('Profile');
-        }
-
-        // 3. Next of Kin
-        const nextOfKinResult = await safeFetch(`${API_BASE_URL}/next-of-kin/`, {
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
-        if (nextOfKinResult.success && nextOfKinResult.data?.data?.length > 0) {
-          if (!completed.includes('Next of Kin')) completed.push('Next of Kin');
-        }
-
-        const nextOfKinCompleted = safeLocalStorage.getItem('nextOfKinCompleted');
-        if (nextOfKinCompleted === 'true' && !completed.includes('Next of Kin')) {
-          completed.push('Next of Kin');
-        }
-
-        // 4. MSCE Results
-        const subjectsResult = await safeFetch(`${API_BASE_URL}/subject-records/`, {
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
-        if (subjectsResult.success && subjectsResult.data?.data?.length > 0) {
-          if (!completed.includes('MSCE Results')) completed.push('MSCE Results');
-        }
-
-        // 5. Programme Choice
-        const programmeChoicesResult = await safeFetch(`${API_BASE_URL}/applicants/programme-choices`, {
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
-        if (programmeChoicesResult.success && programmeChoicesResult.data?.choices?.length > 0) {
-          if (!completed.includes('Programme Choice')) completed.push('Programme Choice');
-        } else {
-          const progChoiceFlag = safeLocalStorage.getItem('programmeChoiceCompleted');
-          if (progChoiceFlag === 'true' && !completed.includes('Programme Choice')) {
-            completed.push('Programme Choice');
-          }
-        }
-
-        // 6. Education
-        const educationResult = await safeFetch(`${API_BASE_URL}/education/`, {
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
-        if (educationResult.success && educationResult.data?.data?.length > 0) {
-          if (!completed.includes('Education')) completed.push('Education');
-        }
-
-        // 7. Teaching Subjects
-        console.log('📚 Fetching teaching subjects...');
-        const teachingSubjectsResult = await safeFetch(`${API_BASE_URL}/teaching-subjects/`, {
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
-        
-        if (teachingSubjectsResult.success && teachingSubjectsResult.data) {
-          let subjectsArray = null;
-          
-          if (Array.isArray(teachingSubjectsResult.data)) {
-            subjectsArray = teachingSubjectsResult.data;
-          } else if (teachingSubjectsResult.data.data && Array.isArray(teachingSubjectsResult.data.data)) {
-            subjectsArray = teachingSubjectsResult.data.data;
-          } else if (teachingSubjectsResult.data.subjects && Array.isArray(teachingSubjectsResult.data.subjects)) {
-            subjectsArray = teachingSubjectsResult.data.subjects;
-          }
-          
-          const count = teachingSubjectsResult.data.count || (subjectsArray ? subjectsArray.length : 0);
-          
-          if ((subjectsArray && subjectsArray.length > 0) || count > 0) {
-            console.log('✅ Teaching subjects found!');
-            if (!completed.includes('Teaching Subjects')) completed.push('Teaching Subjects');
-            safeLocalStorage.setItem('teachingSubjectsCompleted', 'true');
-          }
-        }
-        
-        const teachingFlag = safeLocalStorage.getItem('teachingSubjectsCompleted');
-        if (teachingFlag === 'true' && !completed.includes('Teaching Subjects')) {
-          console.log('Teaching subjects flag found in localStorage');
-          completed.push('Teaching Subjects');
-        }
-
-        // 8. Documents - FIXED: Better detection
-        console.log('📄 Checking documents completion...');
-        const documentsFlag = safeLocalStorage.getItem('documentsCompleted');
-        const documentsSaved = safeLocalStorage.getItem('documentsSaved');
-        const storedDocs = safeLocalStorage.getItem('application_documents');
-        
-        console.log('Documents flags - completed:', documentsFlag, 'saved:', documentsSaved);
-        
-        if (documentsFlag === 'true' || documentsSaved === 'true') {
-          console.log('✅ Documents flag found, marking as completed');
-          if (!completed.includes('Documents')) completed.push('Documents');
-        } else if (storedDocs) {
-          try {
-            const docs = JSON.parse(storedDocs);
-            if (docs && docs.length > 0) {
-              console.log(`✅ Found ${docs.length} documents in localStorage, marking as completed`);
-              if (!completed.includes('Documents')) completed.push('Documents');
-              // Also set the flag for future
-              safeLocalStorage.setItem('documentsCompleted', 'true');
-            }
-          } catch (e) {
-            console.error('Error parsing stored documents:', e);
-          }
-        }
-        
-        // Also check API for documents if possible
-        if (token) {
-          try {
-            // Try to get current user ID first
-            const meResult = await safeFetch(`${API_BASE_URL}/me/`, {
-              headers: { 'Authorization': `Bearer ${token}` },
-            });
-            
-            if (meResult.success && meResult.data?.id) {
-              const applicantId = meResult.data.id;
-              const docsResult = await safeFetch(`${API_BASE_URL}/applicants/${applicantId}/documents/`, {
-                headers: { 'Authorization': `Bearer ${token}` },
-              });
-              
-              if (docsResult.success && docsResult.data?.data) {
-                const hasMSCE = docsResult.data.data.msce;
-                const hasIdCard = docsResult.data.data.id_card;
-                const hasPaymentProof = docsResult.data.data.payment_proof;
-                
-                if (hasMSCE || hasIdCard || hasPaymentProof) {
-                  console.log('✅ Documents found in API, marking as completed');
-                  if (!completed.includes('Documents')) completed.push('Documents');
-                  safeLocalStorage.setItem('documentsCompleted', 'true');
-                }
-              }
-            }
-          } catch (docsErr) {
-            console.error('Error checking documents via API:', docsErr);
-          }
-        }
-
-        // 9. Postgraduate sections
-        if (isPostgraduate) {
-          const essayResult = await safeFetch(`${API_BASE_URL}/essay/`, {
-            headers: { 'Authorization': `Bearer ${token}` },
-          });
-          if (essayResult.success && essayResult.data?.data?.content) {
-            if (!completed.includes('Essay/Statement of Purpose')) completed.push('Essay/Statement of Purpose');
-          }
-
-          const publicationsResult = await safeFetch(`${API_BASE_URL}/publications/`, {
-            headers: { 'Authorization': `Bearer ${token}` },
-          });
-          if (publicationsResult.success && publicationsResult.data?.data?.length > 0) {
-            if (!completed.includes('Publications')) completed.push('Publications');
-          }
-
-          const workHistoryResult = await safeFetch(`${API_BASE_URL}/work-history/`, {
-            headers: { 'Authorization': `Bearer ${token}` },
-          });
-          if (workHistoryResult.success && workHistoryResult.data?.data?.length > 0) {
-            if (!completed.includes('Work History')) completed.push('Work History');
-          }
-
-          const researchProposalResult = await safeFetch(`${API_BASE_URL}/research-proposal/`, {
-            headers: { 'Authorization': `Bearer ${token}` },
-          });
-          if (researchProposalResult.success && researchProposalResult.data?.data?.title) {
-            if (!completed.includes('Research Proposal')) completed.push('Research Proposal');
-          }
-        }
-
-        // 10. Application Fees
-        let hasPayment = false;
-        try {
-          const feesResult = await safeFetch(`${API_BASE_URL}/application-fees/`, {
-            method: 'GET',
-            headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
-          });
-          if (feesResult.success && feesResult.data?.data) {
-            const feesData = feesResult.data.data;
-            if (feesData.deposit_slip || feesData.deposit_slip_path || feesData.file_path) {
-              hasPayment = true;
-              setHasDepositSlip(true);
-              setFeeStatus(feesData.status || 'pending');
-            }
-            if (feesData.status === 'verified' || feesData.status === 'approved' || feesData.status === 'accepted') {
-              hasPayment = true;
-              setHasDepositSlip(true);
-              setFeeStatus(feesData.status);
-            }
-          }
-        } catch (feesErr) {
-          console.error('Error checking fees:', feesErr);
-        }
-        if (hasPayment && !completed.includes('Application Fees')) completed.push('Application Fees');
-
-        // 11. Submit Application
-        const submitResult = await safeFetch(`${API_BASE_URL}/submit/status/`, {
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
-        if (submitResult.success && submitResult.data?.data?.is_submitted) {
-          setApplicationSubmitted(true);
-          if (!completed.includes('Submit Application')) completed.push('Submit Application');
-        }
-
-        console.log('✅ Final completed sections:', completed);
-        setCompletedSections(completed);
-        setApiError(false);
       } catch (err) {
         console.error('Error fetching progress:', err);
-        setApiError(true);
-      } finally {
-        setLoading(false);
+        if (isMounted.current) {
+          setApiError(true);
+          setLoading(false);
+        }
       }
     };
 
     fetchProgress();
     
-    // Set up an interval to refresh completion status periodically
-    const intervalId = setInterval(() => {
-      console.log('🔄 Periodic refresh of completion status');
+    return () => {
+      isMounted.current = false;
+    };
+  }, [calculateProgress, checkLocalStorageCompletion, checkApplicationStatus]);
+
+  // Storage event listener - separate effect
+  useEffect(() => {
+    const handleStorageChange = () => {
+      if (!isMounted.current) return;
+      
       const localStorageCompleted = checkLocalStorageCompletion();
       setCompletedSections(prev => {
         const newCompleted = [...new Set([...prev, ...localStorageCompleted])];
         return newCompleted;
       });
-    }, 5000); // Check every 5 seconds
+      calculateProgress();
+    };
     
-    return () => clearInterval(intervalId);
-  }, []);
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('documentsCompleted', handleStorageChange);
+    window.addEventListener('teachingSubjectsSaved', handleStorageChange);
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('documentsCompleted', handleStorageChange);
+      window.removeEventListener('teachingSubjectsSaved', handleStorageChange);
+    };
+  }, [checkLocalStorageCompletion, calculateProgress]);
 
+  // Periodic check for application status (every 5 seconds)
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      await checkApplicationStatus();
+    }, 5000);
+    
+    return () => clearInterval(interval);
+  }, [checkApplicationStatus]);
+
+  // Mobile body scroll lock
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = '';
     }
+    return () => {
+      document.body.style.overflow = '';
+    };
   }, [isOpen]);
 
   const isSectionComplete = (label: string) => {
     if (label === 'Dashboard') return true;
-    if (label === 'Submit Application' && applicationSubmitted) return true;
+    if (label === 'Submit Application' && applicationLocked) return true;
     if (label === 'Application Fees') return hasDepositSlip || completedSections.includes(label);
     if (label === 'Documents') {
-      // FIXED: Check both flags and localStorage
       const documentsFlag = safeLocalStorage.getItem('documentsCompleted');
       const documentsSaved = safeLocalStorage.getItem('documentsSaved');
       const storedDocs = safeLocalStorage.getItem('application_documents');
@@ -554,12 +405,14 @@ export default function StudentSidebar() {
   };
 
   const isSectionDisabled = (label: string, required: boolean) => {
-    if (label === 'Dashboard') return false;
+    // If application is locked (submitted, approved, rejected, withdrawn, under_review, reviewed), DISABLE ALL navigation except Dashboard
+    if (applicationLocked && label !== 'Dashboard') {
+      return true;
+    }
     
-    // Select Application Type - always enabled
+    if (label === 'Dashboard') return false;
     if (label === 'Select Application Type') return false;
     
-    // Select Study Route - only disabled if no application type selected
     if (label === 'Select Study Route') {
       const appType = safeLocalStorage.getItem('userApplicationType');
       const appTypeCompleted = safeLocalStorage.getItem('applicationTypeCompleted');
@@ -579,7 +432,6 @@ export default function StudentSidebar() {
     
     if (label === 'Application Fees') return required && !hasDepositSlip && !completedSections.includes(label);
     
-    // For all other required sections
     if (required) {
       return !isSectionComplete(label);
     }
@@ -587,30 +439,6 @@ export default function StudentSidebar() {
     return false;
   };
 
-  const calculateProgress = () => {
-    const totalRequired = studentNavItems.filter(item => item.required).length;
-    let completedCount = 0;
-    for (const item of studentNavItems) {
-      if (item.label === 'Submit Application') {
-        if (applicationSubmitted) completedCount++;
-      } else if (item.label === 'Application Fees') {
-        if (hasDepositSlip || completedSections.includes(item.label)) completedCount++;
-      } else if (item.label === 'Documents') {
-        if (isSectionComplete('Documents')) completedCount++;
-      } else if (item.label === 'Select Application Type') {
-        const appType = safeLocalStorage.getItem('userApplicationType');
-        if (appType) completedCount++;
-      } else if (item.label === 'Select Study Route') {
-        const studyRoute = safeLocalStorage.getItem('userStudyRoute');
-        if (studyRoute) completedCount++;
-      } else if (item.required && isSectionComplete(item.label)) {
-        completedCount++;
-      }
-    }
-    return totalRequired > 0 ? Math.round((completedCount / totalRequired) * 100) : 0;
-  };
-
-  const overallProgress = calculateProgress();
   const isRouteActive = (href: string) => pathname === href;
   const sortedNavItems = [...studentNavItems].sort((a, b) => a.order - b.order);
 
@@ -623,6 +451,23 @@ export default function StudentSidebar() {
       </aside>
     );
   }
+
+  // Get status display and color
+  const getStatusColor = () => {
+    switch (applicationStatus) {
+      case 'approved':
+      case 'accepted':
+        return 'bg-green-100 dark:bg-green-900/30 border-green-300 dark:border-green-700 text-green-800 dark:text-green-300';
+      case 'rejected':
+        return 'bg-red-100 dark:bg-red-900/30 border-red-300 dark:border-red-700 text-red-800 dark:text-red-300';
+      case 'submitted':
+      case 'under_review':
+      case 'reviewed':
+        return 'bg-yellow-100 dark:bg-yellow-900/30 border-yellow-300 dark:border-yellow-700 text-yellow-800 dark:text-yellow-300';
+      default:
+        return 'bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-gray-800 dark:text-gray-300';
+    }
+  };
 
   return (
     <>
@@ -667,8 +512,38 @@ export default function StudentSidebar() {
 
         <hr className="mb-3 mx-2 border-gray-200 dark:border-gray-700" />
 
-        {/* Selection Status Badges */}
-        {!loading && (
+        {/* Application Status Banner - Shows for ALL locked statuses */}
+        {applicationLocked && (
+          <div className={`mx-3 mb-4 p-3 rounded-lg border ${getStatusColor()}`}>
+            <div className="flex items-center gap-2 mb-2">
+              {applicationStatus === 'approved' || applicationStatus === 'accepted' ? (
+                <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400" />
+              ) : applicationStatus === 'rejected' ? (
+                <X className="w-4 h-4 text-red-600 dark:text-red-400" />
+              ) : (
+                <Send className="w-4 h-4 text-yellow-600 dark:text-yellow-400" />
+              )}
+              <span className="text-sm font-semibold">
+                Application {getStatusDisplayText()}
+              </span>
+            </div>
+            {referenceNumber && (
+              <p className="text-xs font-mono mt-1">
+                Ref: {referenceNumber}
+              </p>
+            )}
+            <p className="text-xs mt-2">
+              {applicationStatus === 'approved' || applicationStatus === 'accepted' 
+                ? 'Congratulations! Your application has been approved.' 
+                : applicationStatus === 'rejected'
+                ? 'Your application has been reviewed and not accepted at this time.'
+                : 'Your application is under review. You cannot modify it.'}
+            </p>
+          </div>
+        )}
+
+        {/* Selection Status Badges - Hide when locked */}
+        {!loading && !applicationLocked && (
           <div className="px-3 mb-4">
             {selectedApplicationType && (
               <div className="text-xs text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-950/30 p-2 rounded-lg mb-2">
@@ -689,8 +564,8 @@ export default function StudentSidebar() {
           </div>
         )}
 
-        {/* Progress Section */}
-        {!loading && (
+        {/* Progress Section - Hide when locked */}
+        {!loading && !applicationLocked && (
           <div className="px-3 mb-4">
             <div className="bg-transparent rounded-lg p-3">
               <div className="mb-3">
@@ -724,14 +599,34 @@ export default function StudentSidebar() {
           </div>
         )}
 
-        {/* Postgraduate Info Banner */}
-        {!loading && isPostgraduate && (
+        {/* Postgraduate Info Banner - Hide when locked */}
+        {!loading && isPostgraduate && !applicationLocked && (
           <div className="px-3 mb-4">
             <div className="bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 rounded-lg p-2 text-center">
               <p className="text-xs text-purple-700 dark:text-purple-300">
                 <Award className="w-3 h-3 inline mr-1" />
                 Postgraduate requirements added
               </p>
+            </div>
+          </div>
+        )}
+
+        <hr className="mb-3 mx-2 border-gray-200 dark:border-gray-700" />
+
+        {/* Stats Cards - Hide when locked */}
+        {!loading && !applicationLocked && (
+          <div className="px-3 mb-4">
+            <div className="bg-green-50 dark:bg-green-950/20 rounded-lg p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-2xl font-bold text-green-700 dark:text-green-400">{completedSectionsCount}</p>
+                  <p className="text-xs text-gray-600 dark:text-gray-400">SECTIONS COMPLETED</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">out of 9</p>
+                  <p className="text-xs text-green-600 dark:text-green-500 mt-1">required</p>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -773,12 +668,15 @@ export default function StudentSidebar() {
                 {isDisabled ? (
                   <div
                     className={linkClasses}
-                    title={!isActive ? `${label} - Complete previous sections first` : label}
+                    title={applicationLocked ? "Application is locked - cannot modify" : (!isActive ? `${label} - Complete previous sections first` : label)}
                   >
                     <Icon className={iconClasses} />
                     <span className="text-sm font-medium">{label}</span>
                     {label === 'Application Fees' && hasDepositSlip && feeStatus !== 'verified' && (
                       <span className="text-xs text-amber-500 dark:text-amber-400 ml-auto">Pending</span>
+                    )}
+                    {applicationLocked && label !== 'Dashboard' && (
+                      <span className="text-xs text-gray-500 dark:text-gray-400 ml-auto">Locked</span>
                     )}
                   </div>
                 ) : (
@@ -795,7 +693,6 @@ export default function StudentSidebar() {
                     {label === 'Teaching Subjects' && isComplete && (
                       <CheckCircle className="w-3 h-3 ml-auto text-green-500 dark:text-green-400" />
                     )}
-                    {/* FIXED: Show checkmark for Documents when complete */}
                     {label === 'Documents' && isComplete && (
                       <CheckCircle className="w-3 h-3 ml-auto text-green-500 dark:text-green-400" />
                     )}
@@ -808,6 +705,9 @@ export default function StudentSidebar() {
                     {label === 'Application Fees' && hasDepositSlip && feeStatus !== 'verified' && (
                       <span className="text-xs text-amber-500 dark:text-amber-400 ml-auto">Pending</span>
                     )}
+                    {label === 'Submit Application' && applicationLocked && (
+                      <CheckCircle className="w-3 h-3 ml-auto text-green-500 dark:text-green-400" />
+                    )}
                   </Link>
                 )}
               </div>
@@ -815,8 +715,8 @@ export default function StudentSidebar() {
           })}
         </nav>
 
-        {/* Completion Status Legend */}
-        {!loading && (
+        {/* Completion Status Legend - Hide when locked */}
+        {!loading && !applicationLocked && (
           <div className="mt-4 px-3 pt-3 border-t border-gray-200 dark:border-gray-700">
             <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
               <div className="flex items-center gap-2">
@@ -827,6 +727,16 @@ export default function StudentSidebar() {
                 <Lock className="w-3 h-3 text-gray-400 dark:text-gray-500" />
                 <span>Locked</span>
               </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Locked Status Legend */}
+        {applicationLocked && (
+          <div className="mt-4 px-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+            <div className="flex items-center justify-center text-xs text-gray-500 dark:text-gray-400">
+              <Lock className="w-3 h-3 mr-1" />
+              <span>Application {getStatusDisplayText()} - Read Only</span>
             </div>
           </div>
         )}

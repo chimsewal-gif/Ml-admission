@@ -20,6 +20,7 @@ interface DocumentRecord {
   previewUrl?: string;
   uploaded?: boolean;
   file_size?: number;
+  file_content?: string; // base64 content
   ml_classification?: {
     suggested_type: string;
     confidence: number;
@@ -76,6 +77,17 @@ export default function ApplicationDocumentsPage() {
     'Recommendation Letter',
     'Other'
   ];
+
+  // Map document type to field name for API
+  const getDocumentFieldName = (docType: string): string | null => {
+    if (docType === 'MSCE Certificate') return 'msce';
+    if (docType === 'Copy of ID / Passport') return 'id_card';
+    if (docType === 'Payment Receipt') return 'payment_proof';
+    if (docType === 'Bachelor\'s Degree Certificate') return 'bachelor_certificate';
+    if (docType === 'Master\'s Degree Certificate') return 'masters_certificate';
+    if (docType === 'Transcript') return 'transcript';
+    return null;
+  };
 
   // Helper to update completion flag
   const updateCompletionFlag = (hasDocuments: boolean) => {
@@ -138,7 +150,7 @@ export default function ApplicationDocumentsPage() {
     }
   };
 
-  // Load documents from API
+  // Load documents from API (database storage)
   const loadDocuments = async (authToken: string, applicantId: number) => {
     try {
       setLoading(true);
@@ -157,42 +169,45 @@ export default function ApplicationDocumentsPage() {
         if (data.success && data.data) {
           const formattedDocs: DocumentRecord[] = [];
           
-          if (data.data.msce) {
+          // Check for each document type in the database response
+          if (data.data.msce && data.data.msce.base64) {
             formattedDocs.push({
               id: Date.now() + 1,
               document_name: 'MSCE Certificate',
               document_type: 'MSCE Certificate',
-              file_path: data.data.msce,
+              file_path: data.data.msce.path,
               uploaded: true,
-              file_size: data.data.msce_size,
+              file_size: data.data.msce.size,
+              file_content: data.data.msce.base64,
             });
           }
           
-          if (data.data.id_card) {
+          if (data.data.id_card && data.data.id_card.base64) {
             formattedDocs.push({
               id: Date.now() + 2,
               document_name: 'National ID',
               document_type: 'Copy of ID / Passport',
-              file_path: data.data.id_card,
+              file_path: data.data.id_card.path,
               uploaded: true,
-              file_size: data.data.id_card_size,
+              file_size: data.data.id_card.size,
+              file_content: data.data.id_card.base64,
             });
           }
           
-          if (data.data.payment_proof) {
+          if (data.data.payment_proof && data.data.payment_proof.base64) {
             formattedDocs.push({
               id: Date.now() + 3,
               document_name: 'Payment Proof',
               document_type: 'Payment Receipt',
-              file_path: data.data.payment_proof,
+              file_path: data.data.payment_proof.path,
               uploaded: true,
-              file_size: data.data.payment_proof_size,
+              file_size: data.data.payment_proof.size,
+              file_content: data.data.payment_proof.base64,
             });
           }
           
           setDocuments(formattedDocs);
           localStorage.setItem('application_documents', JSON.stringify(formattedDocs));
-          // Update completion flag
           updateCompletionFlag(formattedDocs.length > 0);
         }
       } else {
@@ -316,6 +331,65 @@ export default function ApplicationDocumentsPage() {
     }
   };
 
+  // Upload document to API (database storage)
+  const uploadDocumentToAPI = async (doc: DocumentRecord): Promise<boolean> => {
+    if (!token || !applicantId || !doc.file) return false;
+
+    const formData = new FormData();
+    const field = getDocumentFieldName(doc.document_type);
+    if (!field) return false;
+    
+    formData.append(field, doc.file);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/applicants/${applicantId}/documents/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          doc.uploaded = true;
+          // Store base64 content if returned
+          if (data.data && data.data[field] && data.data[field].base64) {
+            doc.file_content = data.data[field].base64;
+          }
+          return true;
+        }
+      }
+      return false;
+    } catch (err) {
+      console.error('API upload failed:', err);
+      return false;
+    }
+  };
+
+  // Delete document from API (database storage)
+  const deleteDocumentFromAPI = async (doc: DocumentRecord): Promise<boolean> => {
+    if (!token || !applicantId) return false;
+
+    const field = getDocumentFieldName(doc.document_type);
+    if (!field) return false;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/applicants/${applicantId}/documents/${field}/`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      return response.ok;
+    } catch (err) {
+      console.error('API delete failed:', err);
+      return false;
+    }
+  };
+
   // Handle file selection with ML classification
   const handleFileSelection = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -358,68 +432,6 @@ export default function ApplicationDocumentsPage() {
     }
   };
 
-  // Upload document to API
-  const uploadDocumentToAPI = async (doc: DocumentRecord): Promise<boolean> => {
-    if (!token || !applicantId || !doc.file) return false;
-
-    const formData = new FormData();
-    let field = '';
-    if (doc.document_type === 'MSCE Certificate') field = 'msce';
-    else if (doc.document_type === 'Copy of ID / Passport') field = 'id_card';
-    else if (doc.document_type === 'Payment Receipt') field = 'payment_proof';
-    else return false;
-    
-    formData.append(field, doc.file);
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/applicants/${applicantId}/documents/`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-        body: formData,
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success) {
-          doc.uploaded = true;
-          doc.file_path = data.data[field];
-          return true;
-        }
-      }
-      return false;
-    } catch (err) {
-      console.error('API upload failed:', err);
-      return false;
-    }
-  };
-
-  // Delete document from API
-  const deleteDocumentFromAPI = async (doc: DocumentRecord): Promise<boolean> => {
-    if (!token || !applicantId) return false;
-
-    let field = '';
-    if (doc.document_type === 'MSCE Certificate') field = 'msce';
-    else if (doc.document_type === 'Copy of ID / Passport') field = 'id_card';
-    else if (doc.document_type === 'Payment Receipt') field = 'payment_proof';
-    else return false;
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/applicants/${applicantId}/documents/${field}/`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      return response.ok;
-    } catch (err) {
-      console.error('API delete failed:', err);
-      return false;
-    }
-  };
-
   const handleAddDocument = async () => {
     if (!newDocType) {
       setError('Please select a document type');
@@ -438,12 +450,15 @@ export default function ApplicationDocumentsPage() {
     
     setUploading(true);
     
+    // Create preview URL
+    const previewUrl = URL.createObjectURL(newDocFile);
+    
     const newDoc: DocumentRecord = {
       id: Date.now(),
       document_name: newDocType,
       document_type: newDocType,
       file: newDocFile,
-      previewUrl: URL.createObjectURL(newDocFile),
+      previewUrl: previewUrl,
       uploaded: false,
       file_size: newDocFile.size,
       ml_classification: mlSuggestion ? {
@@ -489,11 +504,10 @@ export default function ApplicationDocumentsPage() {
     setDocuments(updatedDocs);
     localStorage.setItem('application_documents', JSON.stringify(updatedDocs));
     
-    // Update completion flag
     updateCompletionFlag(updatedDocs.length > 0);
     
     if (apiDeleted) {
-      setSuccess('Document deleted successfully');
+      setSuccess('Document deleted from database successfully');
     } else {
       setSuccess('Document removed from local storage');
     }
@@ -501,7 +515,19 @@ export default function ApplicationDocumentsPage() {
   };
 
   const handleViewDocument = (doc: DocumentRecord) => {
-    if (doc.previewUrl) {
+    if (doc.file_content) {
+      // Display from base64 data in database
+      const byteCharacters = atob(doc.file_content);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      URL.revokeObjectURL(url);
+    } else if (doc.previewUrl) {
       window.open(doc.previewUrl, '_blank');
     } else if (doc.file) {
       const url = URL.createObjectURL(doc.file);
@@ -514,10 +540,25 @@ export default function ApplicationDocumentsPage() {
   };
 
   const handleDownload = (doc: DocumentRecord) => {
-    if (doc.previewUrl) {
+    if (doc.file_content) {
+      // Download from base64 data
+      const byteCharacters = atob(doc.file_content);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = doc.document_name.replace(/\s+/g, '_') + '.pdf';
+      link.click();
+      URL.revokeObjectURL(url);
+    } else if (doc.previewUrl) {
       const link = document.createElement('a');
       link.href = doc.previewUrl;
-      link.download = doc.document_name + '.pdf';
+      link.download = doc.document_name.replace(/\s+/g, '_') + '.pdf';
       link.click();
     } else if (doc.file) {
       const url = URL.createObjectURL(doc.file);
@@ -531,21 +572,20 @@ export default function ApplicationDocumentsPage() {
       window.open(fileUrl, '_blank');
     }
   };
-const handleContinue = () => {
-  if (documents.length === 0) {
-    setError('Please add at least one supporting document before continuing');
-    return;
-  }
-  // Ensure completion flag is set
-  if (typeof window !== 'undefined') {
-    localStorage.setItem('documentsCompleted', 'true');
-    localStorage.setItem('documentsSaved', 'true');
-    sessionStorage.setItem('documentsCompleted', 'true');
-    // Dispatch storage event for sidebar to update
-    window.dispatchEvent(new StorageEvent('storage', { key: 'documentsCompleted' }));
-  }
-  router.push('/application/application-fees');
-};
+  
+  const handleContinue = () => {
+    if (documents.length === 0) {
+      setError('Please add at least one supporting document before continuing');
+      return;
+    }
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('documentsCompleted', 'true');
+      localStorage.setItem('documentsSaved', 'true');
+      sessionStorage.setItem('documentsCompleted', 'true');
+      window.dispatchEvent(new StorageEvent('storage', { key: 'documentsCompleted' }));
+    }
+    router.push('/application/application-fees');
+  };
 
   const formatFileSize = (bytes?: number): string => {
     if (!bytes || bytes === 0) return '0 Bytes';
@@ -778,11 +818,11 @@ const handleContinue = () => {
                             </span>
                           )}
                           <p className="text-[10px] text-gray-500 mt-1">
-                            {doc.uploaded ? '✓ Uploaded to server' : '📄 Saved locally'}
+                            {doc.uploaded ? '✓ Saved to database' : '📄 Saved locally'}
                           </p>
                         </div>
                         <div className="flex gap-1">
-                          {(doc.file || doc.previewUrl || doc.file_path) && (
+                          {(doc.file_content || doc.file || doc.previewUrl || doc.file_path) && (
                             <>
                               <button
                                 onClick={() => handleViewDocument(doc)}
@@ -840,11 +880,11 @@ const handleContinue = () => {
                             )}
                           </div>
                           <p className="text-xs sm:text-sm text-gray-500">
-                            {doc.uploaded ? '✓ Uploaded to server' : '📄 Saved locally'}
+                            {doc.uploaded ? '✓ Saved to database' : '📄 Saved locally'}
                           </p>
                         </div>
                         <div className="flex gap-2 justify-start sm:justify-end">
-                          {(doc.file || doc.previewUrl || doc.file_path) && (
+                          {(doc.file_content || doc.file || doc.previewUrl || doc.file_path) && (
                             <>
                               <button
                                 onClick={() => handleViewDocument(doc)}

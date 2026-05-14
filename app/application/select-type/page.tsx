@@ -1,8 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { FileText, ArrowRight, AlertCircle, CheckCircle, GraduationCap, BookOpen, Globe, Award, Home, ChevronRight, ChevronDown } from 'lucide-react';
+import { 
+  FileText, ArrowRight, AlertCircle, CheckCircle, GraduationCap, 
+  BookOpen, Award, Home, ChevronRight, ChevronDown, X, 
+  Search, Sparkles, Clock, Shield, Zap, Target, Brain, Star, TrendingUp, BarChart3, ThumbsUp
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface ApplicationType {
   id: string;
@@ -12,6 +17,8 @@ interface ApplicationType {
   icon: React.ReactNode;
   color: string;
   bgColor: string;
+  duration?: string;
+  careerPaths?: string[];
 }
 
 const applicationTypes: ApplicationType[] = [
@@ -22,6 +29,8 @@ const applicationTypes: ApplicationType[] = [
     icon: <GraduationCap className="w-5 h-5" />,
     color: "text-blue-600",
     bgColor: "bg-blue-50",
+    duration: "4 Years",
+    careerPaths: ["Professional Careers", "Graduate Studies", "Research", "Industry Leadership"],
     requirements: [
       'Malawi School Certificate of Education (MSCE) or equivalent',
       'Minimum of 6 credits including English and Mathematics',
@@ -36,6 +45,8 @@ const applicationTypes: ApplicationType[] = [
     icon: <Award className="w-5 h-5" />,
     color: "text-purple-600",
     bgColor: "bg-purple-50",
+    duration: "2 Years",
+    careerPaths: ["Senior Management", "Specialist Roles", "Research Positions", "Academia"],
     requirements: [
       "Bachelor's degree with at least lower second class honours",
       'Academic transcripts',
@@ -51,6 +62,8 @@ const applicationTypes: ApplicationType[] = [
     icon: <Award className="w-5 h-5" />,
     color: "text-green-600",
     bgColor: "bg-green-50",
+    duration: "3-5 Years",
+    careerPaths: ["Academia", "Research Director", "Senior Expert", "Consultant"],
     requirements: [
       "Master's degree in a relevant field",
       "Bachelor's degree with upper second class honours",
@@ -68,6 +81,8 @@ const applicationTypes: ApplicationType[] = [
     icon: <BookOpen className="w-5 h-5" />,
     color: "text-orange-600",
     bgColor: "bg-orange-50",
+    duration: "2 Years",
+    careerPaths: ["Technical Roles", "Supervisory Positions", "Entrepreneurship"],
     requirements: [
       'Malawi School Certificate of Education (MSCE) or equivalent',
       'Minimum of 4 credits including relevant subjects',
@@ -82,6 +97,8 @@ const applicationTypes: ApplicationType[] = [
     icon: <BookOpen className="w-5 h-5" />,
     color: "text-teal-600",
     bgColor: "bg-teal-50",
+    duration: "1 Year",
+    careerPaths: ["Entry Level Positions", "Skill Enhancement", "Career Change"],
     requirements: [
       'Malawi School Certificate of Education (MSCE) or equivalent',
       'Minimum of 2 credits',
@@ -93,14 +110,170 @@ const applicationTypes: ApplicationType[] = [
 
 const API_BASE_URL = 'http://127.0.0.1:8000/api';
 
+interface Toast {
+  id: number;
+  message: string;
+  type: 'success' | 'error' | 'info';
+}
+
+// Custom Styled Select Component
+const StyledApplicationSelect = ({ 
+  value, 
+  onChange, 
+  options, 
+  placeholder 
+}: { 
+  value: string; 
+  onChange: (value: string) => void; 
+  options: ApplicationType[];
+  placeholder: string;
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const selectedType = options.find(opt => opt.id === value);
+
+  const filteredOptions = options.filter(type =>
+    type.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    type.description.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+        setSearchTerm("");
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (isOpen && searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, [isOpen]);
+
+  const handleSelect = (typeId: string) => {
+    onChange(typeId);
+    setIsOpen(false);
+    setSearchTerm("");
+  };
+
+  return (
+    <div ref={dropdownRef} className="relative w-full">
+      {/* Dropdown Trigger Button */}
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full px-4 py-3 text-left bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 flex items-center justify-between gap-2 hover:border-green-300 transition-all"
+      >
+        <div className="flex-1 truncate">
+          {selectedType ? (
+            <div className="flex items-center gap-2">
+              <div className={`p-1 rounded ${selectedType.bgColor}`}>
+                {selectedType.icon}
+              </div>
+              <span className="text-gray-800 font-medium">{selectedType.name}</span>
+            </div>
+          ) : (
+            <span className="text-gray-400">{placeholder}</span>
+          )}
+        </div>
+        <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {/* Dropdown Menu */}
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.15 }}
+            className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden"
+          >
+            {/* Search Bar */}
+            <div className="p-2 border-b border-gray-100 bg-gray-50">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  placeholder="Search application types..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-md focus:outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500 bg-white"
+                />
+              </div>
+            </div>
+
+            {/* Options List */}
+            <div className="max-h-80 overflow-y-auto">
+              {filteredOptions.length === 0 ? (
+                <div className="p-4 text-center text-gray-400 text-sm">
+                  No application types found
+                </div>
+              ) : (
+                filteredOptions.map((type) => (
+                  <button
+                    key={type.id}
+                    onClick={() => handleSelect(type.id)}
+                    className={`w-full px-3 py-3 text-left hover:bg-gray-50 transition-all border-b border-gray-50 last:border-0 ${
+                      selectedType?.id === type.id ? 'bg-green-50' : ''
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`p-2 rounded-lg ${type.bgColor} ${type.color}`}>
+                        {type.icon}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between">
+                          <span className={`font-medium ${selectedType?.id === type.id ? 'text-green-700' : 'text-gray-800'}`}>
+                            {type.name}
+                          </span>
+                          {selectedType?.id === type.id && (
+                            <CheckCircle className="w-4 h-4 text-green-600" />
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{type.description}</p>
+                      </div>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
 export default function SelectApplicationType() {
   const [selectedType, setSelectedType] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string>('');
-  const [success, setSuccess] = useState<string>('');
   const [user, setUser] = useState<any>(null);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [toasts, setToasts] = useState<Toast[]>([]);
   const router = useRouter();
+
+  // Add toast notification
+  const addToast = (message: string, type: 'success' | 'error' | 'info') => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(toast => toast.id !== id));
+    }, 4000);
+  };
+
+  const removeToast = (id: number) => {
+    setToasts(prev => prev.filter(toast => toast.id !== id));
+  };
 
   // Simple auth check on mount
   useEffect(() => {
@@ -116,6 +289,12 @@ export default function SelectApplicationType() {
       const parsedUser = JSON.parse(storedUser);
       setUser(parsedUser);
       setIsAuthenticated(true);
+      
+      // Check if already selected
+      const savedType = localStorage.getItem('userApplicationType');
+      if (savedType) {
+        setSelectedType(savedType);
+      }
     } catch (e) {
       router.push('/login');
     }
@@ -123,24 +302,20 @@ export default function SelectApplicationType() {
 
   const handleSelection = (typeId: string) => {
     setSelectedType(typeId);
-    setError('');
-    setSuccess('');
   };
 
   const handleContinue = async () => {
     if (!selectedType) {
-      setError('Please select an application type');
+      addToast('Please select an application type', 'error');
       return;
     }
 
     setIsLoading(true);
-    setError('');
-    setSuccess('');
 
     try {
       const token = localStorage.getItem('token');
       if (!token) {
-        setError('Please log in first.');
+        addToast('Please log in first.', 'error');
         setTimeout(() => router.push('/login'), 1500);
         setIsLoading(false);
         return;
@@ -152,13 +327,13 @@ export default function SelectApplicationType() {
       localStorage.setItem('userApplicationType', selectedType);
       localStorage.setItem('userApplicationTypeName', selectedTypeData?.name || '');
       
-      // IMPORTANT: Store completion flag for sidebar
+      // Store completion flag for sidebar
       localStorage.setItem('applicationTypeCompleted', 'true');
       
       // Also store in session for backup
       sessionStorage.setItem('applicationTypeCompleted', 'true');
       
-      setSuccess(`${selectedTypeData?.name} selected successfully! Redirecting...`);
+      addToast(`${selectedTypeData?.name} selected successfully! Redirecting...`, 'success');
       
       setTimeout(() => {
         router.push('/application/select-route');
@@ -166,9 +341,9 @@ export default function SelectApplicationType() {
       
     } catch (error: any) {
       if (error.message && error.message.includes('Failed to fetch')) {
-        setError('Cannot connect to server. Please ensure the Django backend is running.');
+        addToast('Cannot connect to server. Please ensure the Django backend is running.', 'error');
       } else {
-        setError(error.message || 'An unexpected error occurred. Please try again.');
+        addToast(error.message || 'An unexpected error occurred. Please try again.', 'error');
       }
     } finally {
       setIsLoading(false);
@@ -200,6 +375,37 @@ export default function SelectApplicationType() {
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-4xl mx-auto px-4">
         
+        {/* Toast Notifications */}
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 flex flex-col items-center space-y-2 pointer-events-none">
+          {toasts.map((toast) => (
+            <div
+              key={toast.id}
+              className={`pointer-events-auto flex items-center gap-3 px-5 py-3 rounded-lg shadow-lg ${
+                toast.type === 'success' 
+                  ? 'bg-green-600 text-white' 
+                  : toast.type === 'error'
+                  ? 'bg-red-600 text-white'
+                  : 'bg-blue-600 text-white'
+              }`}
+            >
+              {toast.type === 'success' ? (
+                <CheckCircle className="w-5 h-5" />
+              ) : toast.type === 'error' ? (
+                <AlertCircle className="w-5 h-5" />
+              ) : (
+                <FileText className="w-5 h-5" />
+              )}
+              <span className="text-sm font-medium">{toast.message}</span>
+              <button
+                onClick={() => removeToast(toast.id)}
+                className="ml-2 hover:opacity-80"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+
         {/* Breadcrumb Navigation */}
         <div className="mb-6">
           <nav className="flex items-center gap-2 text-sm">
@@ -238,71 +444,114 @@ export default function SelectApplicationType() {
           </div>
 
           <div className="p-6">
-            {/* Alerts */}
-            {error && (
-              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3">
-                <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
-                <p className="text-sm text-red-700">{error}</p>
-              </div>
-            )}
-            
-            {success && (
-              <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-3">
-                <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0" />
-                <p className="text-sm text-green-700">{success}</p>
-              </div>
-            )}
-
-            {/* Dropdown Selection */}
+            {/* Custom Dropdown Selection */}
             <div className="mb-8">
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Select Application Type *
               </label>
-              <div className="relative">
-                <select
-                  value={selectedType}
-                  onChange={(e) => handleSelection(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white text-gray-800 appearance-none cursor-pointer"
-                >
-                  <option value="">-- Choose your application type --</option>
-                  {applicationTypes.map((type) => (
-                    <option key={type.id} value={type.id}>
-                      {type.name}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
-              </div>
-              <p className="text-xs text-gray-500 mt-1">
+              <StyledApplicationSelect
+                value={selectedType}
+                onChange={handleSelection}
+                options={applicationTypes}
+                placeholder="-- Choose your application type --"
+              />
+              <p className="text-xs text-gray-500 mt-2 flex items-center gap-1">
+                <Sparkles className="w-3 h-3 text-green-500" />
                 Choose the option that best describes your applicant category
               </p>
             </div>
 
-            {/* Selected Type Details Card - Fixed syntax */}
-            {selectedDetails && (
-              <div className="mb-8 border-2 border-dashed border-green-500 rounded-lg overflow-hidden">
-                <div className={`${selectedDetails.bgColor} p-4 border-b border-dashed border-green-200`}>
-                  <div className="flex items-center gap-3">
-                    <div className={`p-2 ${selectedDetails.bgColor} rounded-lg ${selectedDetails.color}`}>
-                      {selectedDetails.icon}
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-gray-800">{selectedDetails.name}</h3>
-                      <p className="text-sm text-gray-600">{selectedDetails.description}</p>
+            {/* Selected Type Details Card with Animation */}
+            <AnimatePresence mode="wait">
+              {selectedDetails && (
+                <motion.div
+                  key={selectedDetails.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -20 }}
+                  transition={{ duration: 0.3 }}
+                  className="mb-8 border-2 border-green-500 rounded-lg overflow-hidden shadow-md"
+                >
+                  <div className={`${selectedDetails.bgColor} p-4 border-b border-green-200`}>
+                    <div className="flex items-center gap-3">
+                      <div className={`p-2 rounded-lg ${selectedDetails.bgColor} ${selectedDetails.color}`}>
+                        {selectedDetails.icon}
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-gray-800">{selectedDetails.name}</h3>
+                        <p className="text-sm text-gray-600">{selectedDetails.description}</p>
+                      </div>
                     </div>
                   </div>
-                </div>
-                
-                <div className="p-4 bg-white">
-                  <h4 className="font-medium text-gray-700 mb-3 text-sm">Requirements:</h4>
-                  <ul className="space-y-2">
-                    {selectedDetails.requirements.map((req, index) => (
-                      <li key={index} className="flex items-start text-sm text-gray-600">
-                        <CheckCircle className="w-4 h-4 text-green-500 mr-2 mt-0.5 flex-shrink-0" />
-                        {req}
-                      </li>
-                    ))}
-                  </ul>
+                  
+                  <div className="p-4 bg-white">
+                    {/* Duration Info */}
+                    {selectedDetails.duration && (
+                      <div className="mb-4 flex items-center gap-2 text-sm text-gray-600 bg-gray-50 p-2 rounded-lg">
+                        <Clock className="w-4 h-4 text-green-600" />
+                        <span>Programme Duration: <strong>{selectedDetails.duration}</strong></span>
+                      </div>
+                    )}
+
+                    {/* Career Paths */}
+                    {selectedDetails.careerPaths && (
+                      <div className="mb-4">
+                        <h4 className="font-medium text-gray-700 mb-2 text-sm flex items-center gap-2">
+                          <Target className="w-4 h-4 text-green-600" />
+                          Career Opportunities:
+                        </h4>
+                        <div className="flex flex-wrap gap-2">
+                          {selectedDetails.careerPaths.map((path, idx) => (
+                            <span key={idx} className="text-xs bg-green-50 text-green-700 px-2 py-1 rounded-full">
+                              {path}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <h4 className="font-medium text-gray-700 mb-3 text-sm flex items-center gap-2">
+                      <Shield className="w-4 h-4 text-green-600" />
+                      Entry Requirements:
+                    </h4>
+                    <ul className="space-y-2">
+                      {selectedDetails.requirements.map((req, index) => (
+                        <motion.li 
+                          key={index} 
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: index * 0.05 }}
+                          className="flex items-start text-sm text-gray-600"
+                        >
+                          <CheckCircle className="w-4 h-4 text-green-500 mr-2 mt-0.5 flex-shrink-0" />
+                          {req}
+                        </motion.li>
+                      ))}
+                    </ul>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Selected Type Hint */}
+            {!selectedDetails && (
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="mb-8 p-6 bg-gray-50 rounded-lg border border-gray-200 text-center"
+              >
+                <Brain className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-500 text-sm">Select an application type above to see detailed requirements</p>
+                <p className="text-xs text-gray-400 mt-1">Our AI will help match you with the right programmes</p>
+              </motion.div>
+            )}
+
+            {/* Recommended Badge */}
+            {selectedDetails && (
+              <div className="mb-6 flex justify-center">
+                <div className="inline-flex items-center gap-2 bg-green-100 text-green-700 px-3 py-1.5 rounded-full text-xs">
+                  <ThumbsUp className="w-3 h-3" />
+                  <span>Recommended for applicants with similar profiles</span>
                 </div>
               </div>
             )}
@@ -320,9 +569,9 @@ export default function SelectApplicationType() {
               <button
                 onClick={handleContinue}
                 disabled={!selectedType || isLoading}
-                className={`px-8 py-2.5 rounded-lg text-white font-semibold transition-colors flex items-center gap-2 ${
+                className={`px-8 py-2.5 rounded-lg text-white font-semibold transition-all flex items-center gap-2 ${
                   selectedType && !isLoading
-                    ? 'bg-green-600 hover:bg-green-700'
+                    ? 'bg-green-600 hover:bg-green-700 shadow-md hover:shadow-lg'
                     : 'bg-gray-400 cursor-not-allowed'
                 }`}
               >
@@ -333,7 +582,7 @@ export default function SelectApplicationType() {
                   </>
                 ) : (
                   <>
-                    Continue
+                    Continue to Study Route
                     <ArrowRight className="w-5 h-5" />
                   </>
                 )}
@@ -344,8 +593,12 @@ export default function SelectApplicationType() {
 
         {/* Help Text */}
         <div className="text-center mt-6">
-          <p className="text-gray-500 text-sm">
+          <p className="text-gray-500 text-sm flex items-center justify-center gap-2">
+            <Zap className="w-4 h-4 text-green-500" />
             Need help choosing? Contact our admissions office for guidance on the right application type for you.
+          </p>
+          <p className="text-gray-400 text-xs mt-2">
+            Selected application type will determine your study route options and programme availability
           </p>
         </div>
       </div>

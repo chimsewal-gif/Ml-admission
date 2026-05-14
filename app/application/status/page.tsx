@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   CheckCircle, 
@@ -25,7 +25,8 @@ import {
   ThumbsUp,
   Award,
   TrendingUp,
-  Shield
+  Shield,
+  Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -68,6 +69,9 @@ export default function ApplicationStatusPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [lastChecked, setLastChecked] = useState<Date | null>(null);
+  const [notification, setNotification] = useState<string | null>(null);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const getToken = () => {
     if (typeof window !== 'undefined') {
@@ -76,12 +80,16 @@ export default function ApplicationStatusPage() {
     return null;
   };
 
-  const fetchApplicationStatus = async () => {
+  const fetchApplicationStatus = useCallback(async (showRefreshIndicator = false) => {
     try {
       const token = getToken();
       if (!token) {
         router.push('/login');
         return;
+      }
+
+      if (showRefreshIndicator) {
+        setRefreshing(true);
       }
 
       const response = await fetch(`${API_BASE_URL}/submit/status/`, {
@@ -98,37 +106,61 @@ export default function ApplicationStatusPage() {
       const data = await response.json();
       
       if (data.success && data.data) {
-        // Also fetch additional application details
-        const detailsResponse = await fetch(`${API_BASE_URL}/personal-details/`, {
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
+        const previousStatus = application?.status;
+        const newStatus = data.data.status;
+        
+        // Fetch additional details
+        const [detailsResponse, feeResponse, programmeResponse] = await Promise.all([
+          fetch(`${API_BASE_URL}/personal-details/`, {
+            headers: { 'Authorization': `Bearer ${token}` },
+          }),
+          fetch(`${API_BASE_URL}/application-fees/`, {
+            headers: { 'Authorization': `Bearer ${token}` },
+          }),
+          fetch(`${API_BASE_URL}/applicants/programme/selection/`, {
+            headers: { 'Authorization': `Bearer ${token}` },
+          })
+        ]);
+        
         const detailsData = await detailsResponse.json();
-        
-        // Fetch fee status
-        const feeResponse = await fetch(`${API_BASE_URL}/application-fees/`, {
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
         const feeData = await feeResponse.json();
-        
-        // Fetch programme details
-        const programmeResponse = await fetch(`${API_BASE_URL}/applicants/programme/selection/`, {
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
         const programmeData = await programmeResponse.json();
         
-        setApplication({
+        const newApplicationData = {
           ...data.data,
           first_name: detailsData.data?.first_name || '',
           last_name: detailsData.data?.last_name || '',
           email: detailsData.data?.email || '',
           phone: detailsData.data?.phone || '',
           application_fee_status: feeData.data?.status || 'pending',
-          documents_verified: true, // This would come from API
+          documents_verified: true,
           eligibility_verified: data.data.status !== 'rejected',
           programme_name: programmeData.data?.name || 'Not selected',
           programme_department: programmeData.data?.department || '',
           programme_duration: programmeData.data?.duration || '',
-        });
+        };
+        
+        // Show notification if status changed
+        if (previousStatus && previousStatus !== newStatus) {
+          let statusMessage = '';
+          if (newStatus === 'approved') {
+            statusMessage = '🎉 Congratulations! Your application has been approved!';
+          } else if (newStatus === 'rejected') {
+            statusMessage = 'Your application has been reviewed. Please check your email for details.';
+          } else if (newStatus === 'under_review') {
+            statusMessage = 'Your application is now under review by the committee.';
+          } else if (newStatus === 'reviewed') {
+            statusMessage = 'Your application has been reviewed. Final decision pending.';
+          }
+          
+          if (statusMessage) {
+            setNotification(statusMessage);
+            setTimeout(() => setNotification(null), 5000);
+          }
+        }
+        
+        setApplication(newApplicationData);
+        setLastChecked(new Date());
       } else {
         setApplication(null);
       }
@@ -139,15 +171,35 @@ export default function ApplicationStatusPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [application?.status, router]);
 
-  useEffect(() => {
-    fetchApplicationStatus();
+  // Start polling for status updates
+  const startPolling = useCallback(() => {
+    if (pollingIntervalRef.current) return;
+    
+    pollingIntervalRef.current = setInterval(() => {
+      fetchApplicationStatus(false);
+    }, 5000); // Poll every 5 seconds
+  }, [fetchApplicationStatus]);
+
+  const stopPolling = useCallback(() => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
   }, []);
 
+  useEffect(() => {
+    fetchApplicationStatus(true);
+    startPolling();
+    
+    return () => {
+      stopPolling();
+    };
+  }, [fetchApplicationStatus, startPolling, stopPolling]);
+
   const handleRefresh = async () => {
-    setRefreshing(true);
-    await fetchApplicationStatus();
+    await fetchApplicationStatus(true);
   };
 
   const handlePrint = () => {
@@ -230,7 +282,7 @@ export default function ApplicationStatusPage() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto mb-4"></div>
+          <Loader2 className="w-12 h-12 text-green-600 animate-spin mx-auto mb-4" />
           <p className="text-gray-600">Loading application status...</p>
         </div>
       </div>
@@ -280,6 +332,42 @@ export default function ApplicationStatusPage() {
           </nav>
         </div>
 
+        {/* Auto-refresh Indicator */}
+        <div className="mb-4 flex justify-end">
+          <div className="inline-flex items-center gap-2 text-xs text-gray-400">
+            <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
+            <span>Auto-refreshing every 5 seconds</span>
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="ml-2 p-1 hover:bg-gray-100 rounded transition-colors"
+              title="Refresh now"
+            >
+              <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} />
+            </button>
+            {lastChecked && (
+              <span className="text-gray-400">
+                Last checked: {lastChecked.toLocaleTimeString()}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Status Change Notification */}
+        <AnimatePresence>
+          {notification && (
+            <motion.div
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-3"
+            >
+              <CheckCircle className="w-5 h-5 text-green-500" />
+              <p className="text-green-700">{notification}</p>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Header */}
         <div className="flex justify-between items-center mb-6">
           <div>
@@ -288,16 +376,8 @@ export default function ApplicationStatusPage() {
           </div>
           <div className="flex gap-3">
             <button
-              onClick={handleRefresh}
-              disabled={refreshing}
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
-            >
-              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-              <span>Refresh</span>
-            </button>
-            <button
               onClick={handlePrint}
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors print:hidden"
             >
               <Printer className="w-4 h-4" />
               <span>Print</span>

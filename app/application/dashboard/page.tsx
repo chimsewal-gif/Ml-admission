@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Button from '@/componets/Button';
-import { CheckCircle, AlertCircle, FileText, Users, Layers, Route, School, User, BookOpen, CreditCard, Upload, Bell, Calendar, PlusCircle, ChevronRight, Send, Inbox, Award, GraduationCap } from 'lucide-react';
+import { CheckCircle, AlertCircle, FileText, Users, Layers, Route, School, User, BookOpen, CreditCard, Upload, Bell, Calendar, PlusCircle, ChevronRight, Send, Inbox, Award, GraduationCap, Eye, Lock as LockIcon, RefreshCw, Info, XCircle, Plus, X} from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000/api';
 
@@ -26,6 +27,9 @@ const safeLocalStorage = {
     }
   }
 };
+
+// Statuses that lock the application
+const LOCKED_STATUSES = ['submitted', 'approved', 'accepted', 'rejected', 'withdrawn', 'under_review', 'reviewed'];
 
 interface SectionProgress {
   personalInfo: boolean;
@@ -75,12 +79,24 @@ export default function DashboardPage() {
     documents: false,
     payment: false
   });
-  const [submissionStatus, setSubmissionStatus] = useState<{ is_submitted: boolean; reference_number?: string }>({ is_submitted: false });
+  const [applicationStatus, setApplicationStatus] = useState<{ 
+    is_submitted: boolean; 
+    reference_number?: string;
+    status?: string;
+    submitted_at?: string;
+  }>({ is_submitted: false });
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [deadlines, setDeadlines] = useState<Deadline[]>([]);
   const [selectedApplicationType, setSelectedApplicationType] = useState<string>('');
   const [isPostgraduate, setIsPostgraduate] = useState(false);
+  const [showNewAppModal, setShowNewAppModal] = useState(false);
+  const [newAppType, setNewAppType] = useState('');
+  const [isCreating, setIsCreating] = useState(false);
+  
+  // Refs for polling
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isMounted = useRef(true);
 
   const getToken = () => {
     if (typeof window !== 'undefined') {
@@ -89,7 +105,87 @@ export default function DashboardPage() {
     return null;
   };
 
-  // Helper to check Documents completion - MUST MATCH SIDEBAR LOGIC EXACTLY
+  // Helper to check if application is locked
+  const isApplicationLocked = () => {
+    const status = applicationStatus.status || '';
+    return LOCKED_STATUSES.includes(status);
+  };
+
+  // Start a new application
+  const startNewApplication = async () => {
+    if (!newAppType) {
+      alert('Please select an application type');
+      return;
+    }
+    
+    setIsCreating(true);
+    const token = getToken();
+    
+    try {
+      // Clear existing application data from localStorage
+      const keysToRemove = [
+        'profileCompleted', 'nextOfKinCompleted', 'applicationTypeCompleted',
+        'studyRouteCompleted', 'msceResultsCompleted', 'programmeChoiceCompleted',
+        'educationCompleted', 'teachingSubjectsCompleted', 'documentsCompleted',
+        'documentsSaved', 'applicationFeesCompleted', 'application_documents',
+        'userApplicationType', 'userApplicationTypeName', 'applicationId'
+      ];
+      keysToRemove.forEach(key => safeLocalStorage.removeItem(key));
+      
+      // Reset section progress
+      setSectionProgress({
+        personalInfo: false,
+        nextOfKin: false,
+        applicationType: false,
+        studyRoute: false,
+        academicBackground: false,
+        programmeChoice: false,
+        education: false,
+        teachingSubjects: false,
+        documents: false,
+        payment: false
+      });
+      
+      // Reset application status
+      setApplicationStatus({ is_submitted: false });
+      
+      // Save new application type
+      safeLocalStorage.setItem('userApplicationType', newAppType);
+      const appTypeName = newAppType === 'masters' ? 'Master\'s Degree' : 
+                          newAppType === 'phd' ? 'PhD' : 
+                          newAppType === 'undergraduate' ? 'Undergraduate' : 'Diploma';
+      safeLocalStorage.setItem('userApplicationTypeName', appTypeName);
+      setSelectedApplicationType(appTypeName);
+      setIsPostgraduate(newAppType === 'masters' || newAppType === 'phd');
+      
+      // Redirect to personal details to start fresh
+      router.push('/application/profile');
+      
+    } catch (error) {
+      console.error('Error starting new application:', error);
+      alert('Failed to start new application. Please try again.');
+    } finally {
+      setIsCreating(false);
+      setShowNewAppModal(false);
+      setNewAppType('');
+    }
+  };
+
+  const getStatusDisplay = () => {
+    const status = applicationStatus.status || '';
+    switch (status) {
+      case 'submitted': return { text: 'Submitted - Under Review', color: 'bg-yellow-100 text-yellow-800', icon: Send };
+      case 'under_review': return { text: 'Under Review', color: 'bg-blue-100 text-blue-800', icon: Eye };
+      case 'reviewed': return { text: 'Reviewed', color: 'bg-indigo-100 text-indigo-800', icon: CheckCircle };
+      case 'approved': return { text: 'Approved!', color: 'bg-green-100 text-green-800', icon: CheckCircle };
+      case 'accepted': return { text: 'Accepted!', color: 'bg-green-100 text-green-800', icon: Award };
+      case 'rejected': return { text: 'Rejected', color: 'bg-red-100 text-red-800', icon: XCircle };
+      case 'withdrawn': return { text: 'Withdrawn', color: 'bg-gray-100 text-gray-800', icon: X };
+      default: return { text: 'In Progress', color: 'bg-gray-100 text-gray-800', icon: FileText };
+    }
+  };
+
+  // Helper to check Documents completion
   const isDocumentsComplete = () => {
     const documentsFlag = safeLocalStorage.getItem('documentsCompleted');
     const documentsSaved = safeLocalStorage.getItem('documentsSaved');
@@ -105,7 +201,7 @@ export default function DashboardPage() {
     return sectionProgress.documents;
   };
 
-  // Calculate completed required sections (matching sidebar - excludes Teaching Subjects)
+  // Calculate completed required sections
   const getCompletedRequiredCount = () => {
     let count = 0;
     if (sectionProgress.personalInfo) count++;
@@ -120,23 +216,20 @@ export default function DashboardPage() {
     return count;
   };
 
-  const TOTAL_REQUIRED_SECTIONS = 9; // Excluding Teaching Subjects
-
-  // Calculate overall progress - EXACT same calculation for both places
+  const TOTAL_REQUIRED_SECTIONS = 9;
   const completedCount = getCompletedRequiredCount();
   const exactProgress = (completedCount / TOTAL_REQUIRED_SECTIONS) * 100;
   const progress = Math.round(exactProgress);
   const remainingCount = TOTAL_REQUIRED_SECTIONS - completedCount;
-  const isSubmitted = submissionStatus.is_submitted;
+  const isLocked = isApplicationLocked();
 
   const stats = {
     active: completedCount,
-    submitted: isSubmitted ? 1 : 0,
+    submitted: applicationStatus.is_submitted ? 1 : 0,
     accepted: 0,
     messages: unreadCount
   };
 
-  // Check localStorage for completion flags
   const checkLocalStorageCompletion = () => {
     const flags = {
       personalInfo: safeLocalStorage.getItem('profileCompleted') === 'true',
@@ -151,7 +244,6 @@ export default function DashboardPage() {
       payment: safeLocalStorage.getItem('applicationFeesCompleted') === 'true'
     };
     
-    // Also check for stored documents
     if (!flags.documents) {
       const storedDocs = safeLocalStorage.getItem('application_documents');
       if (storedDocs) {
@@ -167,13 +259,65 @@ export default function DashboardPage() {
     return flags;
   };
 
+  // Check submission status - called by polling
+  const checkSubmissionStatus = useCallback(async () => {
+    const token = getToken();
+    if (!token) return;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/submit/status/`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await response.json();
+      if (data.success && data.data) {
+        const newStatus = {
+          is_submitted: data.data.is_submitted || false,
+          reference_number: data.data.reference_number,
+          status: data.data.status || '',
+          submitted_at: data.data.submitted_at
+        };
+        
+        if (JSON.stringify(newStatus) !== JSON.stringify(applicationStatus)) {
+          console.log('Status updated:', newStatus.status);
+          setApplicationStatus(newStatus);
+        }
+      }
+    } catch (error) {
+      console.error('Error checking submission status:', error);
+    }
+  }, [applicationStatus]);
+
+  // Refresh all progress
+  const refreshProgress = useCallback(async () => {
+    await checkSectionProgress();
+    await checkSubmissionStatus();
+  }, []);
+
+  // Start polling for status updates
+  const startPolling = useCallback(() => {
+    if (pollingIntervalRef.current) return;
+    
+    pollingIntervalRef.current = setInterval(() => {
+      checkSubmissionStatus();
+    }, 5000);
+  }, [checkSubmissionStatus]);
+
+  const stopPolling = useCallback(() => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
+    isMounted.current = true;
+    
     loadUserData();
-    checkSubmissionStatus();
     loadNotifications();
     loadDeadlines();
+    checkSubmissionStatus();
+    startPolling();
     
-    // Listen for storage events to update progress in real-time
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'documentsCompleted' || e.key === 'documentsSaved' ||
           e.key === 'teachingSubjectsCompleted' || e.key === 'profileCompleted' ||
@@ -181,18 +325,18 @@ export default function DashboardPage() {
           e.key === 'studyRouteCompleted' || e.key === 'msceResultsCompleted' ||
           e.key === 'programmeChoiceCompleted' || e.key === 'educationCompleted' ||
           e.key === 'applicationFeesCompleted') {
-        console.log('Storage event detected, refreshing progress');
         refreshProgress();
       }
     };
     
     window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+    
+    return () => {
+      isMounted.current = false;
+      stopPolling();
+      window.removeEventListener('storage', handleStorageChange);
+    };
   }, []);
-
-  const refreshProgress = async () => {
-    await checkSectionProgress();
-  };
 
   const loadUserData = async () => {
     try {
@@ -221,7 +365,6 @@ export default function DashboardPage() {
         localStorage.setItem('user', JSON.stringify(data));
       }
 
-      // Check application type
       const appType = safeLocalStorage.getItem('userApplicationType');
       if (appType === 'masters' || appType === 'phd') {
         setIsPostgraduate(true);
@@ -373,13 +516,10 @@ export default function DashboardPage() {
     const token = getToken();
     if (!token) return;
 
-    // First check localStorage flags
     const localStorageFlags = checkLocalStorageCompletion();
-    
     const progress = { ...localStorageFlags };
 
     try {
-      // 1. Personal Info Check via API
       if (!progress.personalInfo) {
         const personalInfoRes = await fetch(`${API_BASE_URL}/personal-details/`, {
           headers: { 'Authorization': `Bearer ${token}` }
@@ -392,7 +532,6 @@ export default function DashboardPage() {
         }
       }
 
-      // 2. Next of Kin Check
       if (!progress.nextOfKin) {
         const nextOfKinRes = await fetch(`${API_BASE_URL}/next-of-kin/`, {
           headers: { 'Authorization': `Bearer ${token}` }
@@ -404,7 +543,6 @@ export default function DashboardPage() {
         }
       }
 
-      // 3. Academic Background Check (MSCE Results)
       if (!progress.academicBackground) {
         const subjectsRes = await fetch(`${API_BASE_URL}/subject-records/`, {
           headers: { 'Authorization': `Bearer ${token}` }
@@ -416,7 +554,6 @@ export default function DashboardPage() {
         }
       }
 
-      // 4. Programme Choice Check
       if (!progress.programmeChoice) {
         const programmeRes = await fetch(`${API_BASE_URL}/applicants/programme-choices`, {
           headers: { 'Authorization': `Bearer ${token}` }
@@ -428,7 +565,6 @@ export default function DashboardPage() {
         }
       }
 
-      // 5. Education Check
       if (!progress.education) {
         const educationRes = await fetch(`${API_BASE_URL}/education/`, {
           headers: { 'Authorization': `Bearer ${token}` }
@@ -440,7 +576,6 @@ export default function DashboardPage() {
         }
       }
 
-      // 6. Teaching Subjects Check (optional, but we still track it)
       if (!progress.teachingSubjects) {
         const teachingRes = await fetch(`${API_BASE_URL}/teaching-subjects/`, {
           headers: { 'Authorization': `Bearer ${token}` }
@@ -460,7 +595,6 @@ export default function DashboardPage() {
         }
       }
 
-      // 7. Documents Check
       if (!progress.documents) {
         const userRes = await fetch(`${API_BASE_URL}/me/`, {
           headers: { 'Authorization': `Bearer ${token}` }
@@ -481,7 +615,6 @@ export default function DashboardPage() {
         }
       }
 
-      // 8. Payment Check
       if (!progress.payment) {
         try {
           const paymentRes = await fetch(`${API_BASE_URL}/application-fees/`, {
@@ -512,24 +645,6 @@ export default function DashboardPage() {
     setSectionProgress(progress);
   };
 
-  const checkSubmissionStatus = async () => {
-    const token = getToken();
-    if (!token) return;
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/submit/status/`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await response.json();
-      if (data.success) {
-        setSubmissionStatus(data.data);
-      }
-    } catch (error) {
-      console.error('Error checking submission status:', error);
-    }
-  };
-
-  // Define sections (Teaching Subjects is optional)
   const sections = [
     {
       id: 'personalInfo',
@@ -612,8 +727,74 @@ export default function DashboardPage() {
       color: 'red'
     }
   ];
+// New Application Modal Component
+const NewApplicationModal = () => {
+  if (!showNewAppModal) return null;
+  
+  return (
+    <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-bold text-gray-900">Start New Application</h2>
+          <button
+            onClick={() => setShowNewAppModal(false)}
+            className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+          >
+            <X className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+        
+        <p className="text-gray-600 mb-6">
+          Starting a new application will clear your current progress. You can have only one active application at a time.
+        </p>
+        
+        <div className="space-y-3 mb-6">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Select Application Type
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            {['undergraduate', 'diploma', 'masters', 'phd'].map((type) => (
+              <button
+                key={type}
+                onClick={() => setNewAppType(type)}
+                className={`p-3 rounded-xl border-2 text-left transition-all ${
+                  newAppType === type
+                    ? 'border-green-500 bg-green-50'
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <p className="font-medium text-gray-900 capitalize">{type}</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  {type === 'undergraduate' && 'Bachelor\'s Degree'}
+                  {type === 'diploma' && 'Diploma Program'}
+                  {type === 'masters' && 'Master\'s Degree'}
+                  {type === 'phd' && 'Doctoral Program'}
+                </p>
+              </button>
+            ))}
+          </div>
+        </div>
+        
+        <div className="flex gap-3">
+          <button
+            onClick={() => setShowNewAppModal(false)}
+            className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={startNewApplication}
+            disabled={!newAppType || isCreating}
+            className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isCreating ? 'Starting...' : 'Start Application'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
-  // Circle Progress Component
   const CircleProgress = ({ percentage, size = 140 }: { percentage: number; size?: number }) => {
     const radius = (size - 20) / 2;
     const circumference = 2 * Math.PI * radius;
@@ -674,6 +855,9 @@ export default function DashboardPage() {
     }
   };
 
+  const statusDisplay = getStatusDisplay();
+  const StatusIcon = statusDisplay.icon;
+
   if (loading) {
     return (
       <div className="p-4 md:p-8">
@@ -690,38 +874,136 @@ export default function DashboardPage() {
     );
   }
 
-  if (isSubmitted) {
+  // If application is locked (submitted/approved/rejected), show status view
+  if (isLocked) {
     return (
       <div className="p-4 md:p-8">
-        <div className="max-w-4xl mx-auto">
-          <div className="bg-green-50 rounded-2xl border border-green-200 p-8 text-center mt-8">
-            <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">Application Submitted!</h1>
-            <p className="text-gray-600 mb-4">
-              Your application has been successfully submitted.
-            </p>
-            {submissionStatus.reference_number && (
-              <div className="bg-white rounded-lg p-4 mb-6 inline-block">
-                <p className="text-sm text-gray-500">Reference Number</p>
-                <p className="text-xl font-bold text-green-600">{submissionStatus.reference_number}</p>
+        <NewApplicationModal />
+        <div className="max-w-5xl mx-auto">
+          {/* Status Banner */}
+          <div className={`mb-8 rounded-xl p-6 text-center ${statusDisplay.color} border border-opacity-30`}>
+            <div className="flex items-center justify-center gap-3 mb-3">
+              <StatusIcon className="w-8 h-8" />
+              <h2 className="text-2xl font-bold">Application {statusDisplay.text}</h2>
+            </div>
+            {applicationStatus.reference_number && (
+              <div className="bg-white rounded-lg p-3 inline-block mb-3">
+                <p className="text-xs text-gray-500">Reference Number</p>
+                <p className="text-lg font-bold font-mono">{applicationStatus.reference_number}</p>
               </div>
             )}
-            <Button
-              type="button"
-              title="View Application Status"
-              variant="bg-green-600"
-              href="/application/status"
-            />
+            {applicationStatus.submitted_at && (
+              <p className="text-sm mt-2">
+                Submitted on: {new Date(applicationStatus.submitted_at).toLocaleDateString()}
+              </p>
+            )}
+            <div className="mt-4 flex flex-wrap gap-3 justify-center">
+              <Link
+                href="/application/status"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-white text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <Eye className="w-4 h-4" />
+                View Full Status
+              </Link>
+              <Link
+                href="/application/application-fees"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              >
+                <CreditCard className="w-4 h-4" />
+                Make Payment
+              </Link>
+              {(applicationStatus.status === 'approved' || applicationStatus.status === 'accepted') && (
+                <Link
+                  href="/application/acceptance-letter"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  <Award className="w-4 h-4" />
+                  View Acceptance Letter
+                </Link>
+              )}
+              <button
+                onClick={() => {
+                  checkSubmissionStatus();
+                  refreshProgress();
+                }}
+                className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Refresh Status
+              </button>
+              {/* Start New Application Button - Always visible */}
+              <button
+                onClick={() => setShowNewAppModal(true)}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                Start New Application
+              </button>
+            </div>
+            <div className="mt-3 text-xs text-gray-500 flex items-center justify-center gap-1">
+              <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
+              Auto-refreshing status...
+            </div>
+          </div>
+
+          {/* Read-Only Summary */}
+          <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-6 mb-8">
+            <div className="flex items-center gap-2 mb-4 pb-2 border-b border-gray-200">
+              <LockIcon className="w-5 h-5 text-gray-500" />
+              <h2 className="text-lg font-semibold text-gray-800">Application Summary (Read Only)</h2>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-3 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-500">Programme</p>
+                <p className="font-medium text-gray-900">{sections.find(s => s.id === 'programmeChoice')?.title || 'Not selected'}</p>
+              </div>
+              <div className="p-3 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-500">Application Type</p>
+                <p className="font-medium text-gray-900">{selectedApplicationType || 'Not selected'}</p>
+              </div>
+              <div className="p-3 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-500">Completion Status</p>
+                <div className="flex items-center gap-2 mt-1">
+                  <div className="flex-1 bg-gray-200 rounded-full h-2">
+                    <div className="bg-green-500 h-2 rounded-full" style={{ width: `${progress}%` }} />
+                  </div>
+                  <span className="text-sm font-medium">{progress}%</span>
+                </div>
+              </div>
+              <div className="p-3 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-500">Documents</p>
+                <p className="font-medium text-gray-900">
+                  {isDocumentsComplete() ? '✓ Uploaded' : 'Pending'}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Info Note */}
+          <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
+            <div className="flex items-start gap-3">
+              <Info className="w-5 h-5 text-blue-600 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-blue-800">Application Locked</p>
+                <p className="text-xs text-blue-700 mt-1">
+                  Your application has been {statusDisplay.text.toLowerCase()}. You cannot make changes to your application at this stage.
+                  Click "Start New Application" to begin a new application.
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </div>
     );
   }
 
+  // Regular dashboard for active applications (not locked)
   return (
     <div className="p-4 md:p-8">
+      <NewApplicationModal />
       <div className="max-w-5xl mx-auto">
-        {/* Welcome Section */}
+        {/* Welcome Section with Start New Application Button */}
         <div className="mb-8">
           <div className="flex items-center justify-between flex-wrap gap-4">
             <div>
@@ -738,13 +1020,20 @@ export default function DashboardPage() {
                 </p>
               )}
             </div>
-            <button
-              onClick={() => router.push('/application/select-type')}
-              className="flex items-center gap-2 px-5 py-2.5 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors shadow-sm"
-            >
-              <PlusCircle className="w-5 h-5" />
-              Start New Application
-            </button>
+            <div className="flex items-center gap-3">
+              <div className="text-xs text-gray-400 flex items-center gap-1">
+                <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
+                Live updates
+              </div>
+              {/* Start New Application Button */}
+              <button
+                onClick={() => setShowNewAppModal(true)}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors shadow-sm"
+              >
+                <Plus className="w-4 h-4" />
+                Start New Application
+              </button>
+            </div>
           </div>
         </div>
 
@@ -796,7 +1085,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Progress Overview Card with Circle Progress */}
+        {/* Progress Overview Card */}
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 mb-8">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-bold text-gray-900">Application Progress</h2>
@@ -954,7 +1243,7 @@ export default function DashboardPage() {
               type="button"
               title="Get Started"
               variant="bg-green-600"
-              href="/application/select-type"
+              href="/application/profile"
               className="px-6 py-2"
             />
           </div>
