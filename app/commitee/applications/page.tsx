@@ -14,7 +14,8 @@ import {
   Image as ImageIcon, XCircle, CheckCircle, Home, ChevronRight,
   Building2, GraduationCap, BookOpen, Crown, Medal, Trophy,
   Phone, Mail, MapPin, Globe, CreditCard, DollarSign, Search,
-  SlidersHorizontal, Printer, Share2, CalendarDays, History
+  SlidersHorizontal, Printer, Share2, CalendarDays, History,
+  Star
 } from 'lucide-react';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api';
@@ -26,6 +27,17 @@ type MLPrediction = {
   factors: { factor: string; impact: string }[];
   recommendation: string;
   priority_level: 'High' | 'Medium' | 'Low';
+};
+
+type ProgrammeChoiceItem = {
+  id?: number;
+  choice_number: number;
+  programme_id: number;
+  programme_name: string;
+  department: string;
+  duration: string;
+  category: string;
+  code?: string;
 };
 
 type ApplicantSubmission = {
@@ -49,14 +61,7 @@ type ApplicantSubmission = {
     reviewed_by?: string;
     reviewed_at?: string;
   };
-  programme_choices?: {
-    first_choice: string;
-    second_choice?: string;
-    third_choice?: string;
-    fourth_choice?: string;
-    fifth_choice?: string;
-    sixth_choice?: string;
-  };
+  programme_choices_list?: ProgrammeChoiceItem[];
 };
 
 interface Document {
@@ -144,6 +149,206 @@ const REJECTION_REASONS = [
   { value: 'fraudulent_documents', label: 'Fraudulent documents', icon: '⚠️', color: 'bg-red-50 border-red-200', description: 'Tampered or forged documents detected' },
   { value: 'other', label: 'Other reason', icon: '📝', color: 'bg-gray-50 border-gray-200', description: 'Custom reason' },
 ];
+
+// Helper Functions
+const getToken = () => { if (typeof window !== 'undefined') return localStorage.getItem('token'); return null; };
+const getUser = () => { if (typeof window !== 'undefined') { const userStr = localStorage.getItem('user'); if (userStr) try { return JSON.parse(userStr); } catch (e) { return null; } } return null; };
+const getRankSuffix = (rank: number): string => {
+  if (rank === 1) return "st";
+  if (rank === 2) return "nd";
+  if (rank === 3) return "rd";
+  return "th";
+};
+
+// ---------- Programme Choices Modal ----------
+function ProgrammeChoicesModal({ isOpen, application, onClose }: { isOpen: boolean; application: ApplicantSubmission | null; onClose: () => void }) {
+  const [programmeChoices, setProgrammeChoices] = useState<ProgrammeChoiceItem[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const apiClient = useCallback(() => {
+    const token = getToken();
+    if (!token) return null;
+    return axios.create({
+      baseURL: API_BASE_URL,
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  }, []);
+
+  useEffect(() => {
+    if (isOpen && application) {
+      fetchProgrammeChoices();
+    }
+  }, [isOpen, application]);
+
+  const fetchProgrammeChoices = async () => {
+    if (!application) return;
+    setLoading(true);
+    const client = apiClient();
+    if (!client) { setLoading(false); return; }
+    try {
+      const res = await client.get('/applicants/programme-choices');
+      if (res.data.success && res.data.choices) {
+        setProgrammeChoices(res.data.choices);
+      } else if (Array.isArray(res.data)) {
+        setProgrammeChoices(res.data);
+      } else if (res.data.data && Array.isArray(res.data.data)) {
+        setProgrammeChoices(res.data.data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch programme choices:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getRankIcon = (rank: number) => {
+    const icons: Record<number, string> = {
+      1: '🥇',
+      2: '🥈',
+      3: '🥉',
+      4: '📋',
+      5: '📋',
+      6: '📋'
+    };
+    return icons[rank] || '📌';
+  };
+
+  const getRankColor = (rank: number) => {
+    if (rank === 1) return 'from-yellow-500 to-amber-600';
+    if (rank === 2) return 'from-gray-400 to-gray-500';
+    if (rank === 3) return 'from-amber-600 to-orange-700';
+    return 'from-blue-500 to-indigo-600';
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ scale: 0.95, opacity: 0, y: 20 }}
+        animate={{ scale: 1, opacity: 1, y: 0 }}
+        exit={{ scale: 0.95, opacity: 0, y: 20 }}
+        className="bg-white rounded-2xl max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-5 border-b bg-gradient-to-r from-blue-50 to-indigo-50 rounded-t-2xl">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-blue-100 rounded-xl">
+              <Award className="w-5 h-5 text-blue-600" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Programme Choices</h2>
+              <p className="text-sm text-gray-500">
+                {application?.applicant_name} - 6 Programmes in Order of Preference
+              </p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-white/50 rounded-xl">
+            <X className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5">
+          {loading ? (
+            <div className="flex justify-center py-12">
+              <Loader className="animate-spin w-8 h-8 text-blue-600" />
+            </div>
+          ) : programmeChoices.length === 0 ? (
+            <div className="text-center py-12">
+              <Award className="w-16 h-16 text-gray-300 mx-auto mb-3" />
+              <p className="text-gray-500">No programme choices found</p>
+              <p className="text-sm text-gray-400 mt-1">This applicant hasn't selected any programmes yet</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {programmeChoices
+                .sort((a, b) => a.choice_number - b.choice_number)
+                .map((choice) => (
+                  <motion.div
+                    key={choice.choice_number}
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: (choice.choice_number - 1) * 0.1 }}
+                    className={`relative overflow-hidden rounded-xl border-2 ${
+                      choice.choice_number === 1 
+                        ? 'border-yellow-400 bg-gradient-to-r from-yellow-50 to-amber-50' 
+                        : choice.choice_number === 2
+                        ? 'border-gray-300 bg-gradient-to-r from-gray-50 to-slate-50'
+                        : choice.choice_number === 3
+                        ? 'border-amber-300 bg-gradient-to-r from-amber-50 to-orange-50'
+                        : 'border-gray-200 bg-white hover:bg-gray-50'
+                    } transition-all duration-200`}
+                  >
+                    <div className="flex items-start p-4">
+                      <div className={`flex-shrink-0 w-12 h-12 rounded-xl bg-gradient-to-br ${getRankColor(choice.choice_number)} flex items-center justify-center text-white shadow-md mr-4`}>
+                        <span className="text-2xl">{getRankIcon(choice.choice_number)}</span>
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                            choice.choice_number === 1 
+                              ? 'bg-yellow-200 text-yellow-800' 
+                              : choice.choice_number === 2
+                              ? 'bg-gray-200 text-gray-700'
+                              : choice.choice_number === 3
+                              ? 'bg-amber-200 text-amber-800'
+                              : 'bg-blue-100 text-blue-700'
+                          }`}>
+                            {choice.choice_number}{getRankSuffix(choice.choice_number)} Choice
+                          </span>
+                          {choice.choice_number === 1 && (
+                            <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                              <Star className="w-3 h-3" /> Top Priority
+                            </span>
+                          )}
+                        </div>
+                        <h3 className="text-lg font-bold text-gray-900">{choice.programme_name}</h3>
+                        <div className="flex flex-wrap gap-3 mt-2">
+                          <span className="text-xs text-gray-500 flex items-center gap-1">
+                            <Building2 className="w-3 h-3" /> {choice.department || 'N/A'}
+                          </span>
+                          <span className="text-xs text-gray-500 flex items-center gap-1">
+                            <Clock className="w-3 h-3" /> {choice.duration || 'N/A'}
+                          </span>
+                          <span className="text-xs text-gray-500 flex items-center gap-1">
+                            <GraduationCap className="w-3 h-3" /> {choice.category || 'N/A'}
+                          </span>
+                          {choice.code && (
+                            <span className="text-xs text-gray-500 flex items-center gap-1">
+                              <FileText className="w-3 h-3" /> Code: {choice.code}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex-shrink-0">
+                        <div className={`w-2 h-2 rounded-full ${
+                          choice.choice_number === 1 ? 'bg-yellow-500' :
+                          choice.choice_number === 2 ? 'bg-gray-400' :
+                          choice.choice_number === 3 ? 'bg-amber-500' : 'bg-blue-400'
+                        }`} />
+                      </div>
+                    </div>
+                  </motion.div>
+                ))}
+            </div>
+          )}
+        </div>
+
+        <div className="p-5 border-t bg-gray-50 flex justify-end rounded-b-2xl">
+          <button onClick={onClose} className="px-5 py-2.5 bg-gray-600 text-white rounded-xl hover:bg-gray-700">
+            Close
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
 
 // ---------- Document Verification Modal ----------
 function DocumentVerificationModal({ isOpen, applicationId, applicantName, currentStatus, onClose, onUpdate }: any) {
@@ -326,7 +531,6 @@ function DocumentVerificationModal({ isOpen, applicationId, applicantName, curre
         </div>
       </motion.div>
 
-      {/* Preview Modal */}
       <AnimatePresence>
         {selectedDoc && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] p-4" onClick={() => setSelectedDoc(null)}>
@@ -398,7 +602,6 @@ function ApplicationDetailsModal({ isOpen, applicationId, onClose }: { isOpen: b
             <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-700 text-center">{error}</div>
           ) : details ? (
             <div className="space-y-6">
-              {/* Personal Information */}
               <div className="border rounded-xl overflow-hidden">
                 <div className="bg-gray-50 px-4 py-3 border-b"><h3 className="font-semibold text-gray-800 flex items-center gap-2"><User className="w-4 h-4" /> Personal Information</h3></div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4">
@@ -414,7 +617,6 @@ function ApplicationDetailsModal({ isOpen, applicationId, onClose }: { isOpen: b
                 </div>
               </div>
 
-              {/* Programme Information */}
               <div className="border rounded-xl overflow-hidden">
                 <div className="bg-gray-50 px-4 py-3 border-b"><h3 className="font-semibold text-gray-800 flex items-center gap-2"><GraduationCap className="w-4 h-4" /> Programme Information</h3></div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4">
@@ -425,7 +627,6 @@ function ApplicationDetailsModal({ isOpen, applicationId, onClose }: { isOpen: b
                 </div>
               </div>
 
-              {/* Next of Kin */}
               {details.next_of_kin && details.next_of_kin.length > 0 && (
                 <div className="border rounded-xl overflow-hidden">
                   <div className="bg-gray-50 px-4 py-3 border-b"><h3 className="font-semibold text-gray-800 flex items-center gap-2"><Users className="w-4 h-4" /> Next of Kin</h3></div>
@@ -442,7 +643,6 @@ function ApplicationDetailsModal({ isOpen, applicationId, onClose }: { isOpen: b
                 </div>
               )}
 
-              {/* MSCE Subjects */}
               {details.subject_records && details.subject_records.length > 0 && (
                 <div className="border rounded-xl overflow-hidden">
                   <div className="bg-gray-50 px-4 py-3 border-b"><h3 className="font-semibold text-gray-800 flex items-center gap-2"><BookOpen className="w-4 h-4" /> MSCE Subjects</h3></div>
@@ -732,9 +932,23 @@ function FiltersModal({ isOpen, onClose, priorityFilter, setPriorityFilter, date
   );
 }
 
-// ---------- Helper Functions ----------
-const getToken = () => { if (typeof window !== 'undefined') return localStorage.getItem('token'); return null; };
-const getUser = () => { if (typeof window !== 'undefined') { const userStr = localStorage.getItem('user'); if (userStr) try { return JSON.parse(userStr); } catch (e) { return null; } } return null; };
+// ---------- ML Analytics Modal ----------
+function MLAnalyticsModal({ isOpen, onClose, stats, applications }: any) {
+  if (!isOpen) return null;
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }} className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-5 border-b bg-gradient-to-r from-purple-50 to-blue-50 rounded-t-2xl"><div className="flex items-center gap-3"><div className="p-2 bg-purple-100 rounded-xl"><Brain className="w-6 h-6 text-purple-600" /></div><div><h2 className="text-xl font-bold">ML Analytics Dashboard</h2><p className="text-sm text-gray-500">Real-time insights and predictions</p></div></div><button onClick={onClose} className="p-2 hover:bg-white/50 rounded-xl"><X className="w-5 h-5" /></button></div>
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4"><div className="bg-blue-50 p-4 rounded-xl text-center"><div className="text-2xl font-bold text-blue-700">{stats.total}</div><div className="text-sm text-blue-600">Total Apps</div></div><div className="bg-green-50 p-4 rounded-xl text-center"><div className="text-2xl font-bold text-green-700">{stats.analyzed}</div><div className="text-sm text-green-600">Analyzed by ML</div></div><div className="bg-purple-50 p-4 rounded-xl text-center"><div className="text-2xl font-bold text-purple-700">{stats.autoProcessed}</div><div className="text-sm text-purple-600">Auto-Processed</div></div><div className="bg-yellow-50 p-4 rounded-xl text-center"><div className="text-2xl font-bold text-yellow-700">{Math.round(stats.avgConfidence * 100)}%</div><div className="text-sm text-yellow-600">Avg Confidence</div></div></div>
+          <div className="grid grid-cols-3 gap-4"><div className="text-center"><div className="text-xl font-bold text-red-600">{stats.highPriority}</div><div className="text-xs text-gray-500">High Priority</div></div><div className="text-center"><div className="text-xl font-bold text-yellow-600">{stats.mediumPriority}</div><div className="text-xs text-gray-500">Medium Priority</div></div><div className="text-center"><div className="text-xl font-bold text-green-600">{stats.lowPriority}</div><div className="text-xs text-gray-500">Low Priority</div></div></div>
+          <div className="border-t pt-4"><h3 className="font-semibold mb-3">Recent ML Predictions</h3><div className="space-y-2 max-h-64 overflow-y-auto">{applications.filter(a => a.ml_prediction).slice(0, 10).map(app => (<div key={app.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg"><div><p className="font-medium">{app.applicant_name}</p><p className="text-xs text-gray-500">{app.programme}</p></div><div className="text-right"><span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium ${app.ml_prediction!.decision === 'approve' ? 'bg-green-100 text-green-800' : app.ml_prediction!.decision === 'reject' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'}`}>{app.ml_prediction!.decision.toUpperCase()}</span><p className="text-xs text-gray-500 mt-1">Confidence: {Math.round(app.ml_prediction!.confidence * 100)}%</p></div></div>))}</div></div>
+        </div>
+        <div className="p-5 border-t bg-gray-50 flex justify-end rounded-b-2xl"><button onClick={onClose} className="px-5 py-2.5 bg-gray-600 text-white rounded-xl hover:bg-gray-700">Close</button></div>
+      </motion.div>
+    </motion.div>
+  );
+}
 
 // ---------- Main Component ----------
 export default function ApplicationsPage() {
@@ -752,6 +966,7 @@ export default function ApplicationsPage() {
   const [showDocModal, setShowDocModal] = useState<{show: boolean, applicationId: number, applicantName: string, currentStatus: boolean | null}>({ show: false, applicationId: 0, applicantName: '', currentStatus: null });
   const [showDetailsModal, setShowDetailsModal] = useState<{show: boolean, applicationId: number}>({ show: false, applicationId: 0 });
   const [showPredictionModal, setShowPredictionModal] = useState<{show: boolean, application: ApplicantSubmission | null}>({ show: false, application: null });
+  const [showProgrammeChoicesModal, setShowProgrammeChoicesModal] = useState<{show: boolean, application: ApplicantSubmission | null}>({ show: false, application: null });
   const [showBulkModal, setShowBulkModal] = useState<{show: boolean, action: string, count: number}>({ show: false, action: '', count: 0 });
   const [showExportModal, setShowExportModal] = useState(false);
   const [showFiltersModal, setShowFiltersModal] = useState(false);
@@ -773,6 +988,31 @@ export default function ApplicationsPage() {
     return axios.create({ baseURL: API_BASE_URL, headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json', 'Content-Type': 'application/json' } });
   }, []);
 
+  const fetchProgrammeChoicesForApplicants = async (applicantsData: ApplicantSubmission[]) => {
+    const client = apiClient();
+    if (!client) return applicantsData;
+    
+    try {
+      const res = await client.get('/applicants/programme-choices');
+      let choices: ProgrammeChoiceItem[] = [];
+      if (res.data.success && res.data.choices) {
+        choices = res.data.choices;
+      } else if (Array.isArray(res.data)) {
+        choices = res.data;
+      } else if (res.data.data && Array.isArray(res.data.data)) {
+        choices = res.data.data;
+      }
+      
+      return applicantsData.map(app => ({
+        ...app,
+        programme_choices_list: choices.sort((a, b) => a.choice_number - b.choice_number)
+      }));
+    } catch (err) {
+      console.error('Failed to fetch programme choices:', err);
+      return applicantsData;
+    }
+  };
+
   const fetchApplications = async () => {
     try {
       setLoading(true);
@@ -787,10 +1027,18 @@ export default function ApplicationsPage() {
       else if (Array.isArray(res.data)) applicationsData = res.data;
       else if (res.data.data && Array.isArray(res.data.data)) applicationsData = res.data.data;
       else setError('Unexpected response format from server');
-      const enrichedData = applicationsData.map(app => ({ ...app, priority_level: app.ml_prediction?.priority_level || 'Medium', rejection_reason: app.rejection_reason || (app.status === 'rejected' ? 'Not specified' : undefined) }));
-      setApplications(enrichedData);
-      setFilteredApplications(enrichedData);
-      return enrichedData;
+      
+      const enrichedData = applicationsData.map(app => ({ 
+        ...app, 
+        priority_level: app.ml_prediction?.priority_level || 'Medium', 
+        rejection_reason: app.rejection_reason || (app.status === 'rejected' ? 'Not specified' : undefined) 
+      }));
+      
+      const appsWithChoices = await fetchProgrammeChoicesForApplicants(enrichedData);
+      
+      setApplications(appsWithChoices);
+      setFilteredApplications(appsWithChoices);
+      return appsWithChoices;
     } catch (err: any) {
       console.error('Failed to fetch applications:', err);
       if (err.response?.status === 401) { setError('Session expired. Please log in again.'); localStorage.removeItem('token'); localStorage.removeItem('user'); setTimeout(() => router.push('/login'), 2000); }
@@ -823,6 +1071,7 @@ export default function ApplicationsPage() {
   const closeRejectionModal = () => { setShowRejectionModal({ show: false, application: null }); setRejectionSubmitting(false); };
   const openDetailsModal = (id: number) => setShowDetailsModal({ show: true, applicationId: id });
   const openPredictionModal = (app: ApplicantSubmission) => setShowPredictionModal({ show: true, application: app });
+  const openProgrammeChoicesModal = (app: ApplicantSubmission) => setShowProgrammeChoicesModal({ show: true, application: app });
 
   const submitRejection = async (reason: string, customReason?: string) => {
     if (!showRejectionModal.application) return;
@@ -932,8 +1181,21 @@ export default function ApplicationsPage() {
   const cancelEditing = () => setEditingStatus(null);
 
   const exportApplications = (format: string) => {
-    const headers = ['ID', 'Applicant Name', 'Programme', 'Reference', 'Status', 'Priority', 'ML Decision', 'Confidence', 'Documents Valid', 'Rejection Reason', 'Submitted Date'];
-    const csvData = filteredApplications.map(app => [app.id, app.applicant_name, app.programme, app.reference_number || 'N/A', app.status, app.priority_level || 'N/A', app.ml_prediction?.decision || 'Not Analyzed', app.ml_prediction ? `${Math.round(app.ml_prediction.confidence * 100)}%` : 'N/A', app.documents_valid === true ? 'Valid' : app.documents_valid === false ? 'Invalid' : 'Pending', app.rejection_reason || 'N/A', new Date(app.submitted_at).toLocaleDateString()]);
+    const headers = ['ID', 'Applicant Name', 'First Choice Programme', 'All Choices', 'Reference', 'Status', 'Priority', 'ML Decision', 'Confidence', 'Documents Valid', 'Rejection Reason', 'Submitted Date'];
+    const csvData = filteredApplications.map(app => [
+      app.id,
+      app.applicant_name,
+      app.programme_choices_list?.find(c => c.choice_number === 1)?.programme_name || app.programme || 'Not specified',
+      app.programme_choices_list?.map(c => `${c.choice_number}. ${c.programme_name}`).join(' | ') || 'None',
+      app.reference_number || 'N/A',
+      app.status,
+      app.priority_level || 'N/A',
+      app.ml_prediction?.decision || 'Not Analyzed',
+      app.ml_prediction ? `${Math.round(app.ml_prediction.confidence * 100)}%` : 'N/A',
+      app.documents_valid === true ? 'Valid' : app.documents_valid === false ? 'Invalid' : 'Pending',
+      app.rejection_reason || 'N/A',
+      new Date(app.submitted_at).toLocaleDateString()
+    ]);
     const csvContent = [headers, ...csvData].map(row => row.join(',')).join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
@@ -947,16 +1209,53 @@ export default function ApplicationsPage() {
   const getPriorityIcon = (priority: string) => { switch (priority) { case 'High': return '🔴'; case 'Medium': return '🟡'; case 'Low': return '🟢'; default: return '⚪'; } };
   const handleDocumentUpdate = (appId: number, newStatus: boolean) => { setApplications(prev => prev.map(app => app.id === appId ? { ...app, documents_valid: newStatus } : app)); setSuccess(`Document verification status updated to ${newStatus ? 'Verified' : 'Invalid'}`); setTimeout(() => setSuccess(null), 3000); };
 
+  const getFirstChoiceProgramme = (app: ApplicantSubmission): string => {
+    if (app.programme_choices_list && app.programme_choices_list.length > 0) {
+      const firstChoice = app.programme_choices_list.find(c => c.choice_number === 1);
+      if (firstChoice) return firstChoice.programme_name;
+    }
+    return app.programme || 'Not specified';
+  };
+
+  const getChoicesCount = (app: ApplicantSubmission): number => {
+    return app.programme_choices_list?.length || 0;
+  };
+
   const stats = { total: applications.length, highPriority: applications.filter(a => a.priority_level === 'High').length, mediumPriority: applications.filter(a => a.priority_level === 'Medium').length, lowPriority: applications.filter(a => a.priority_level === 'Low').length, approved: applications.filter(a => a.status === 'approved' || a.status === 'accepted').length, rejected: applications.filter(a => a.status === 'rejected').length, pending: applications.filter(a => a.status === 'pending' || a.status === 'submitted').length, analyzed: applications.filter(a => a.ml_prediction).length, autoProcessed: applications.filter(a => a.auto_processed).length, avgConfidence: applications.filter(a => a.ml_prediction).reduce((acc, a) => acc + (a.ml_prediction?.confidence || 0), 0) / (applications.filter(a => a.ml_prediction).length || 1) };
+
+  if (loading && applications.length === 0) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <Loader className="animate-spin h-10 w-10 text-green-600 mx-auto mb-4" />
+          <p className="text-gray-600">Loading applications...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Breadcrumb */}
-        <div className="mb-6"><nav className="flex items-center gap-2 text-sm"><button onClick={() => router.push('/committee/dashboard')} className="flex items-center gap-1 text-gray-600 hover:text-green-600"><Home className="w-4 h-4" /><span>Dashboard</span></button><ChevronRight className="w-4 h-4 text-gray-400" /><span className="text-gray-900 font-medium">Applicant Submissions</span></nav></div>
+        <div className="mb-6">
+          <nav className="flex items-center gap-2 text-sm">
+            <button onClick={() => router.push('/committee/dashboard')} className="flex items-center gap-1 text-gray-600 hover:text-green-600">
+              <Home className="w-4 h-4" /><span>Dashboard</span>
+            </button>
+            <ChevronRight className="w-4 h-4 text-gray-400" />
+            <span className="text-gray-900 font-medium">Applicant Submissions</span>
+          </nav>
+        </div>
 
         {/* Header */}
-        <div className="text-center mb-8"><div className="inline-flex items-center gap-2 bg-green-100 text-green-700 px-4 py-2 rounded-full mb-4"><Users className="w-4 h-4" /><span className="text-sm font-medium">ML-Powered Application Management</span></div><h1 className="text-3xl font-bold text-gray-900">Applicant Submissions</h1><p className="text-gray-600 mt-2">Review, analyze, and manage student applications with AI assistance</p></div>
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center gap-2 bg-green-100 text-green-700 px-4 py-2 rounded-full mb-4">
+            <Users className="w-4 h-4" /><span className="text-sm font-medium">ML-Powered Application Management</span>
+          </div>
+          <h1 className="text-3xl font-bold text-gray-900">Applicant Submissions</h1>
+          <p className="text-gray-600 mt-2">Review, analyze, and manage student applications with AI assistance</p>
+        </div>
 
         {/* Stats Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-9 gap-3 mb-6">
@@ -1011,20 +1310,113 @@ export default function ApplicationsPage() {
             <div className="hidden lg:block overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-gradient-to-r from-green-600 to-green-700 text-white">
-                  <tr><th className="px-4 py-3 text-left text-sm font-semibold">#</th><th className="px-4 py-3 text-left text-sm font-semibold">Applicant</th><th className="px-4 py-3 text-left text-sm font-semibold">Programme</th><th className="px-4 py-3 text-left text-sm font-semibold">Priority</th><th className="px-4 py-3 text-left text-sm font-semibold">Status</th><th className="px-4 py-3 text-left text-sm font-semibold">Documents</th><th className="px-4 py-3 text-left text-sm font-semibold">ML Analysis</th><th className="px-4 py-3 text-left text-sm font-semibold">Submitted</th><th className="px-4 py-3 text-left text-sm font-semibold">Actions</th></tr>
+                  <tr>
+                    <th className="px-4 py-3 text-left text-sm font-semibold">#</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold">Applicant</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold">Programme (1st Choice)</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold">Priority</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold">Status</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold">Documents</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold">ML Analysis</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold">Submitted</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold">Actions</th>
+                  </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {filteredApplications.map((app, idx) => (
                     <tr key={app.id} className="hover:bg-green-50/50 transition-colors">
                       <td className="px-4 py-3 whitespace-nowrap"><span className="inline-flex items-center justify-center w-6 h-6 bg-green-100 text-green-800 rounded-full text-xs font-medium">{idx + 1}</span></td>
-                      <td className="px-4 py-3"><div className="flex items-center gap-2"><div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center"><User className="w-4 h-4 text-green-600" /></div><div><span className="text-sm font-medium text-gray-900">{app.applicant_name}</span>{app.rejection_reason && <div className="flex items-center gap-1 mt-0.5"><MessageCircle className="w-3 h-3 text-red-400" /><span className="text-xs text-red-500 truncate max-w-[150px]">{app.rejection_reason}</span></div>}</div></div></td>
-                      <td className="px-4 py-3"><div className="flex items-center gap-2"><Building2 className="w-4 h-4 text-gray-400" /><span className="text-sm text-gray-700">{app.programme}</span></div></td>
-                      <td className="px-4 py-3 whitespace-nowrap">{app.priority_level && <div className="flex items-center gap-1"><span className="text-lg">{getPriorityIcon(app.priority_level)}</span><span className={`text-xs font-medium px-2 py-1 rounded-full ${PRIORITY_OPTIONS.find(p => p.value === app.priority_level)?.color}`}>{app.priority_level}</span></div>}</td>
-                      <td className="px-4 py-3 whitespace-nowrap">{editingStatus?.id === app.id ? (<div className="flex items-center gap-2"><select value={editingStatus.status} onChange={(e) => setEditingStatus({ ...editingStatus, status: e.target.value })} className="text-sm border rounded px-2 py-1" disabled={updatingId === app.id}>{STATUS_OPTIONS.map(opt => (<option key={opt.value} value={opt.value}>{opt.label}</option>))}</select><button onClick={() => updateStatus(app.id, editingStatus.status)} disabled={updatingId === app.id} className="p-1 text-green-600 hover:bg-green-50 rounded"><Check className="w-4 h-4" /></button><button onClick={cancelEditing} className="p-1 text-red-600 hover:bg-red-50 rounded"><X className="w-4 h-4" /></button></div>) : (<div className="flex items-center gap-2"><span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(app.status)}`}>{formatStatus(app.status)}</span><button onClick={() => startEditing(app.id, app.status)} className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100"><Edit className="w-3 h-3" /></button>{app.status !== 'rejected' && app.status !== 'approved' && <button onClick={() => openRejectionModal(app)} className="p-1 text-red-400 hover:text-red-600 rounded hover:bg-red-50" title="Reject"><ThumbsDown className="w-3 h-3" /></button>}</div>)}</td>
-                      <td className="px-4 py-3 whitespace-nowrap"><button onClick={() => setShowDocModal({ show: true, applicationId: app.id, applicantName: app.applicant_name, currentStatus: app.documents_valid ?? null })} className={`inline-flex items-center gap-1 text-sm px-2 py-1 rounded transition-colors ${app.documents_valid === true ? 'bg-green-100 text-green-700 hover:bg-green-200' : app.documents_valid === false ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}><FileCheck className="w-4 h-4" />{app.documents_valid === true ? 'Verified' : app.documents_valid === false ? 'Invalid' : 'Pending'}</button></td>
-                      <td className="px-4 py-3 whitespace-nowrap">{app.ml_prediction ? (<div className="space-y-1"><button onClick={() => openPredictionModal(app)} className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${app.ml_prediction.decision === 'approve' ? 'bg-green-100 text-green-800 hover:bg-green-200' : app.ml_prediction.decision === 'reject' ? 'bg-red-100 text-red-800 hover:bg-red-200' : 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200'}`}>{app.ml_prediction.decision.toUpperCase()} ({Math.round(app.ml_prediction.confidence * 100)}%)</button></div>) : (<button onClick={() => predictApplication(app)} disabled={analysisInProgress.includes(app.id)} className="inline-flex items-center gap-1 bg-gray-600 hover:bg-gray-700 text-white px-2 py-1 rounded text-xs">{analysisInProgress.includes(app.id) ? <Loader className="w-3 h-3 animate-spin" /> : <Brain className="w-3 h-3" />}<span>Analyze</span></button>)}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                            <User className="w-4 h-4 text-green-600" />
+                          </div>
+                          <div>
+                            <span className="text-sm font-medium text-gray-900">{app.applicant_name}</span>
+                            {app.rejection_reason && (
+                              <div className="flex items-center gap-1 mt-0.5">
+                                <MessageCircle className="w-3 h-3 text-red-400" />
+                                <span className="text-xs text-red-500 truncate max-w-[150px]">{app.rejection_reason}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <Building2 className="w-4 h-4 text-gray-400" />
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm text-gray-700 block truncate max-w-[200px]">
+                              {getFirstChoiceProgramme(app)}
+                            </span>
+                            {getChoicesCount(app) > 0 && (
+                              <button 
+                                onClick={() => openProgrammeChoicesModal(app)}
+                                className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 mt-1"
+                              >
+                                <Award className="w-3 h-3" />
+                                View all {getChoicesCount(app)} choices
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {app.priority_level && (
+                          <div className="flex items-center gap-1">
+                            <span className="text-lg">{getPriorityIcon(app.priority_level)}</span>
+                            <span className={`text-xs font-medium px-2 py-1 rounded-full ${PRIORITY_OPTIONS.find(p => p.value === app.priority_level)?.color}`}>
+                              {app.priority_level}
+                            </span>
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {editingStatus?.id === app.id ? (
+                          <div className="flex items-center gap-2">
+                            <select value={editingStatus.status} onChange={(e) => setEditingStatus({ ...editingStatus, status: e.target.value })} className="text-sm border rounded px-2 py-1" disabled={updatingId === app.id}>
+                              {STATUS_OPTIONS.map(opt => (<option key={opt.value} value={opt.value}>{opt.label}</option>))}
+                            </select>
+                            <button onClick={() => updateStatus(app.id, editingStatus.status)} disabled={updatingId === app.id} className="p-1 text-green-600 hover:bg-green-50 rounded"><Check className="w-4 h-4" /></button>
+                            <button onClick={cancelEditing} className="p-1 text-red-600 hover:bg-red-50 rounded"><X className="w-4 h-4" /></button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(app.status)}`}>{formatStatus(app.status)}</span>
+                            <button onClick={() => startEditing(app.id, app.status)} className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100"><Edit className="w-3 h-3" /></button>
+                            {app.status !== 'rejected' && app.status !== 'approved' && (
+                              <button onClick={() => openRejectionModal(app)} className="p-1 text-red-400 hover:text-red-600 rounded hover:bg-red-50" title="Reject"><ThumbsDown className="w-3 h-3" /></button>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <button onClick={() => setShowDocModal({ show: true, applicationId: app.id, applicantName: app.applicant_name, currentStatus: app.documents_valid ?? null })} className={`inline-flex items-center gap-1 text-sm px-2 py-1 rounded transition-colors ${app.documents_valid === true ? 'bg-green-100 text-green-700 hover:bg-green-200' : app.documents_valid === false ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                          <FileCheck className="w-4 h-4" />{app.documents_valid === true ? 'Verified' : app.documents_valid === false ? 'Invalid' : 'Pending'}
+                        </button>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {app.ml_prediction ? (
+                          <div className="space-y-1">
+                            <button onClick={() => openPredictionModal(app)} className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${app.ml_prediction.decision === 'approve' ? 'bg-green-100 text-green-800 hover:bg-green-200' : app.ml_prediction.decision === 'reject' ? 'bg-red-100 text-red-800 hover:bg-red-200' : 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200'}`}>
+                              {app.ml_prediction.decision.toUpperCase()} ({Math.round(app.ml_prediction.confidence * 100)}%)
+                            </button>
+                          </div>
+                        ) : (
+                          <button onClick={() => predictApplication(app)} disabled={analysisInProgress.includes(app.id)} className="inline-flex items-center gap-1 bg-gray-600 hover:bg-gray-700 text-white px-2 py-1 rounded text-xs">
+                            {analysisInProgress.includes(app.id) ? <Loader className="w-3 h-3 animate-spin" /> : <Brain className="w-3 h-3" />}<span>Analyze</span>
+                          </button>
+                        )}
+                      </td>
                       <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{formatDate(app.submitted_at)}</td>
-                      <td className="px-4 py-3 whitespace-nowrap"><div className="flex items-center gap-1"><button onClick={() => openDetailsModal(app.id)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded" title="View Details"><Eye className="w-4 h-4" /></button><Link href={`/commitee/applicant-submissions/${app.id}`} className="inline-flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm"><Eye className="w-3 h-3" /><span>View</span></Link></div></td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => openDetailsModal(app.id)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded" title="View Details"><Eye className="w-4 h-4" /></button>
+                          <Link href={`/commitee/applicant-submissions/${app.id}`} className="inline-flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm">
+                            <Eye className="w-3 h-3" /><span>View</span>
+                          </Link>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1035,8 +1427,22 @@ export default function ApplicationsPage() {
             <div className="lg:hidden space-y-3 p-3">
               {filteredApplications.map((app, idx) => (
                 <div key={app.id} className="bg-white border rounded-lg p-4 shadow-sm">
-                  <div className="flex justify-between items-start mb-3"><div className="flex items-center gap-2"><div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center"><User className="w-4 h-4 text-green-600" /></div><div><p className="font-medium text-gray-900">{app.applicant_name}</p><p className="text-xs text-gray-500">#{idx + 1}</p></div></div>{app.priority_level && <div className="flex items-center gap-1"><span className="text-lg">{getPriorityIcon(app.priority_level)}</span><span className={`text-xs px-2 py-1 rounded-full ${PRIORITY_OPTIONS.find(p => p.value === app.priority_level)?.color}`}>{app.priority_level}</span></div>}</div>
-                  <div className="mb-2"><p className="text-xs text-gray-500">Programme</p><p className="text-sm text-gray-700">{app.programme}</p></div>
+                  <div className="flex justify-between items-start mb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center"><User className="w-4 h-4 text-green-600" /></div>
+                      <div><p className="font-medium text-gray-900">{app.applicant_name}</p><p className="text-xs text-gray-500">#{idx + 1}</p></div>
+                    </div>
+                    {app.priority_level && <div className="flex items-center gap-1"><span className="text-lg">{getPriorityIcon(app.priority_level)}</span><span className={`text-xs px-2 py-1 rounded-full ${PRIORITY_OPTIONS.find(p => p.value === app.priority_level)?.color}`}>{app.priority_level}</span></div>}
+                  </div>
+                  <div className="mb-2">
+                    <p className="text-xs text-gray-500">First Choice Programme</p>
+                    <p className="text-sm text-gray-700">{getFirstChoiceProgramme(app)}</p>
+                    {getChoicesCount(app) > 0 && (
+                      <button onClick={() => openProgrammeChoicesModal(app)} className="text-xs text-blue-600 flex items-center gap-1 mt-1">
+                        <Award className="w-3 h-3" /> View all {getChoicesCount(app)} choices
+                      </button>
+                    )}
+                  </div>
                   <div className="mb-2"><p className="text-xs text-gray-500">Status</p><div className="flex items-center gap-2 flex-wrap"><span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(app.status)}`}>{formatStatus(app.status)}</span>{app.status !== 'rejected' && app.status !== 'approved' && <button onClick={() => openRejectionModal(app)} className="text-red-500 text-xs flex items-center gap-1"><ThumbsDown className="w-3 h-3" /> Reject</button>}</div></div>
                   <div className="mb-2"><p className="text-xs text-gray-500">Documents</p><button onClick={() => setShowDocModal({ show: true, applicationId: app.id, applicantName: app.applicant_name, currentStatus: app.documents_valid ?? null })} className={`inline-flex items-center gap-1 text-sm px-2 py-1 rounded ${app.documents_valid === true ? 'bg-green-100 text-green-700' : app.documents_valid === false ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'}`}><FileCheck className="w-4 h-4" />{app.documents_valid === true ? 'Verified' : app.documents_valid === false ? 'Invalid' : 'Pending'}</button></div>
                   {app.status === 'rejected' && app.rejection_reason && (<div className="mb-2 p-2 bg-red-50 rounded-lg"><p className="text-xs text-red-600 font-medium">Rejection Reason:</p><p className="text-xs text-red-700">{app.rejection_reason}</p></div>)}
@@ -1047,7 +1453,10 @@ export default function ApplicationsPage() {
               {filteredApplications.length === 0 && (<div className="text-center py-8 bg-white rounded-lg border"><FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" /><p className="text-gray-500">No applications found</p></div>)}
             </div>
 
-            <div className="px-4 py-3 bg-gray-50 border-t flex justify-between items-center"><p className="text-sm text-gray-600">Showing {filteredApplications.length} of {applications.length} applications</p><div className="text-sm text-gray-500">{isPolling && <span className="flex items-center gap-1 mr-3 text-green-600"><Sparkles className="w-3 h-3 animate-pulse" />Auto-analyzing...</span>}</div></div>
+            <div className="px-4 py-3 bg-gray-50 border-t flex justify-between items-center">
+              <p className="text-sm text-gray-600">Showing {filteredApplications.length} of {applications.length} applications</p>
+              <div className="text-sm text-gray-500">{isPolling && <span className="flex items-center gap-1 mr-3 text-green-600"><Sparkles className="w-3 h-3 animate-pulse" />Auto-analyzing...</span>}</div>
+            </div>
           </div>
         )}
       </div>
@@ -1058,27 +1467,10 @@ export default function ApplicationsPage() {
       <AnimatePresence><DocumentVerificationModal isOpen={showDocModal.show} applicationId={showDocModal.applicationId} applicantName={showDocModal.applicantName} currentStatus={showDocModal.currentStatus} onClose={() => setShowDocModal({ show: false, applicationId: 0, applicantName: '', currentStatus: null })} onUpdate={(newStatus: boolean) => handleDocumentUpdate(showDocModal.applicationId, newStatus)} /></AnimatePresence>
       <AnimatePresence>{showDetailsModal.show && <ApplicationDetailsModal isOpen={showDetailsModal.show} applicationId={showDetailsModal.applicationId} onClose={() => setShowDetailsModal({ show: false, applicationId: 0 })} />}</AnimatePresence>
       <AnimatePresence>{showPredictionModal.show && <MLPredictionModal isOpen={showPredictionModal.show} application={showPredictionModal.application} onClose={() => setShowPredictionModal({ show: false, application: null })} />}</AnimatePresence>
+      <AnimatePresence>{showProgrammeChoicesModal.show && <ProgrammeChoicesModal isOpen={showProgrammeChoicesModal.show} application={showProgrammeChoicesModal.application} onClose={() => setShowProgrammeChoicesModal({ show: false, application: null })} />}</AnimatePresence>
       <AnimatePresence><BulkActionModal isOpen={showBulkModal.show} selectedCount={showBulkModal.count} onClose={() => setShowBulkModal({ show: false, action: '', count: 0 })} onConfirm={() => {}} action={showBulkModal.action} /></AnimatePresence>
       <AnimatePresence><ExportModal isOpen={showExportModal} onClose={() => setShowExportModal(false)} onExport={exportApplications} count={filteredApplications.length} /></AnimatePresence>
       <AnimatePresence><FiltersModal isOpen={showFiltersModal} onClose={() => setShowFiltersModal(false)} priorityFilter={priorityFilter} setPriorityFilter={setPriorityFilter} dateRange={dateRange} setDateRange={setDateRange} mlFilter={mlFilter} setMlFilter={setMlFilter} /></AnimatePresence>
     </div>
-  );
-}
-
-// ---------- ML Analytics Modal (imported component placeholder) ----------
-function MLAnalyticsModal({ isOpen, onClose, stats, applications }: any) {
-  if (!isOpen) return null;
-  return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }} className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-5 border-b bg-gradient-to-r from-purple-50 to-blue-50 rounded-t-2xl"><div className="flex items-center gap-3"><div className="p-2 bg-purple-100 rounded-xl"><Brain className="w-6 h-6 text-purple-600" /></div><div><h2 className="text-xl font-bold">ML Analytics Dashboard</h2><p className="text-sm text-gray-500">Real-time insights and predictions</p></div></div><button onClick={onClose} className="p-2 hover:bg-white/50 rounded-xl"><X className="w-5 h-5" /></button></div>
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4"><div className="bg-blue-50 p-4 rounded-xl text-center"><div className="text-2xl font-bold text-blue-700">{stats.total}</div><div className="text-sm text-blue-600">Total Apps</div></div><div className="bg-green-50 p-4 rounded-xl text-center"><div className="text-2xl font-bold text-green-700">{stats.analyzed}</div><div className="text-sm text-green-600">Analyzed by ML</div></div><div className="bg-purple-50 p-4 rounded-xl text-center"><div className="text-2xl font-bold text-purple-700">{stats.autoProcessed}</div><div className="text-sm text-purple-600">Auto-Processed</div></div><div className="bg-yellow-50 p-4 rounded-xl text-center"><div className="text-2xl font-bold text-yellow-700">{Math.round(stats.avgConfidence * 100)}%</div><div className="text-sm text-yellow-600">Avg Confidence</div></div></div>
-          <div className="grid grid-cols-3 gap-4"><div className="text-center"><div className="text-xl font-bold text-red-600">{stats.highPriority}</div><div className="text-xs text-gray-500">High Priority</div></div><div className="text-center"><div className="text-xl font-bold text-yellow-600">{stats.mediumPriority}</div><div className="text-xs text-gray-500">Medium Priority</div></div><div className="text-center"><div className="text-xl font-bold text-green-600">{stats.lowPriority}</div><div className="text-xs text-gray-500">Low Priority</div></div></div>
-          <div className="border-t pt-4"><h3 className="font-semibold mb-3">Recent ML Predictions</h3><div className="space-y-2 max-h-64 overflow-y-auto">{applications.filter(a => a.ml_prediction).slice(0, 10).map(app => (<div key={app.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg"><div><p className="font-medium">{app.applicant_name}</p><p className="text-xs text-gray-500">{app.programme}</p></div><div className="text-right"><span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium ${app.ml_prediction!.decision === 'approve' ? 'bg-green-100 text-green-800' : app.ml_prediction!.decision === 'reject' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'}`}>{app.ml_prediction!.decision.toUpperCase()}</span><p className="text-xs text-gray-500 mt-1">Confidence: {Math.round(app.ml_prediction!.confidence * 100)}%</p></div></div>))}</div></div>
-        </div>
-        <div className="p-5 border-t bg-gray-50 flex justify-end rounded-b-2xl"><button onClick={onClose} className="px-5 py-2.5 bg-gray-600 text-white rounded-xl hover:bg-gray-700">Close</button></div>
-      </motion.div>
-    </motion.div>
   );
 }
